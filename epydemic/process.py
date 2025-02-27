@@ -595,6 +595,12 @@ class Process():
         :param n: the locus name
         :returns: the locus'''
         return self.loci()[self.decoratedName(n)]
+    
+    def setLoci(self, loci: Dict[str, 'Locus']):
+        '''Set the loci for this process.
+
+        :param loci: the loci'''
+        self._dynamics.setLociForProcess(self, loci)
 
 
     def addEventPerElement(self, l: Union[str, 'Locus'], pr: float,
@@ -738,3 +744,12 @@ class Process():
 
         """
         self._dynamics.postRepeatingEvent(t, dt, self, e, ef, name)
+
+    def atPartialEquilibrium(self):
+        pass
+
+    def reconfigure(self, config):
+        pass
+
+    def configuration(self):
+        return ("", [], [], [], [])

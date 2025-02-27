@@ -17,6 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
+import json
 import sys
 from heapq import heappush, heappop
 from typing import Union, Dict, List, Any, Optional, Tuple, Callable, cast
@@ -25,7 +26,7 @@ if sys.version_info >= (3, 8):
 else:
     from typing_extensions import Final
 from networkx import Graph
-from epydemic import NetworkExperiment, Locus, Process, NetworkGenerator, EventFunction, EventDistribution, Element
+from epydemic import NetworkExperiment, Locus, Process, NetworkGenerator, EventFunction, EventDistribution, Element, InteractionMatrix
 
 # Event types (not exported outside this file)
 PostedEventFunction = Callable[[], None]
@@ -58,16 +59,17 @@ class Dynamics(NetworkExperiment):
         super().__init__(g)
 
         # initialise other fields
-        self._eventId: int = 0                                             # counter for posted events
-        self._process: Process = p                                         # network process to run
-        self._process.setDynamics(self)                                    # back-link from process to dynamics (for events)
-        self._simulationTime: float = 0.0                                  # on-going simulation time
-        self._loci: Dict[str, Locus] = dict()                              # dict from names to loci
-        self._processLoci: Dict[Process, Dict[str, Locus]] = dict()        # dict from processes to loci for events
-        self._perElementEvents: Dict[Process, EventDistribution] = dict()  # dict from processes to events that occur per-element
-        self._perLocusEvents: Dict[Process, EventDistribution] = dict()    # dict from processes to events that occur per-locus
-        self._postedEvents: List[PostedEvent] = []                         # pri-queue of fixed-time events
-        self._postedEventFinder: Dict[int, PostedEvent] = {}               # mapping from event id to event structure
+        self._eventId: int = 0                                                       # counter for posted events
+        self._process: Process = p                                                   # network process to run
+        self._process.setDynamics(self)                                              # back-link from process to dynamics (for events)
+        self._simulationTime: float = 0.0                                            # on-going simulation time
+        self._loci: Dict[str, Locus] = dict()                                        # dict from names to loci
+        self._processLoci: Dict[Process, Dict[str, Locus]] = dict()                  # dict from processes to loci for events
+        self._perElementEvents: Dict[Process, EventDistribution] = dict()            # dict from processes to events that occur per-element
+        self._perLocusEvents: Dict[Process, EventDistribution] = dict()              # dict from processes to events that occur per-locus
+        self._postedEvents: List[PostedEvent] = []                                   # pri-queue of fixed-time events
+        self._postedEventFinder: Dict[int, PostedEvent] = {}                         # mapping from event id to event structure
+        self._interactions: Dict[str, List[Tuple[str, InteractionMatrix, str]]] = dict()   # dict from names to interaction specs
 
 
     # ---------- Configuration ----------
@@ -127,11 +129,43 @@ class Dynamics(NetworkExperiment):
         self._postedEventFinder = dict()
         self._eventId = 0
         self._simulationTime = 0.0
+        self._interactions = {}
+
+        custom_interactions = params.get('custom_interactions', dict())
+        if isinstance(custom_interactions, str):
+            custom_interactions = json.loads(custom_interactions)
+        self._interactions = custom_interactions
 
         # build and set up the process
         self._process.reset()
         self._process.build(params)
         self._process.setUp(params)
+
+        # can only elucidate interactions once processes built and set up as need compartments list
+        # elucidate interactions
+        std_interactions = params.get('std_interactions', dict())
+        if isinstance(std_interactions, str):
+            std_interactions = json.loads(std_interactions)
+            for k, v in std_interactions.items():
+                if isinstance(v, str):
+                    std_interactions[k] = json.loads(v)
+            for source, specs in std_interactions.items():
+                if self._interactions.get(source) is None:
+                    self._interactions[source] = []
+                for spec in specs:
+                    for target, props in spec.items():
+                        preset = props[0]
+                        name = props[1]
+                        self._interactions[source].append(self.generateInteraction(source, target, name, preset))
+        else: # then hasn't been jsonified -- so uses std tuples
+            for source, specs in std_interactions:
+                if self._interactions.get(source) is None:
+                    self._interactions[source] = []
+                for spec in specs:
+                    for target, props in spec.items():
+                        preset, name = props
+                        self._interactions[source].append(self.generateInteraction(source, target, name, preset))
+                
 
     def tearDown(self):
         '''At the end of each experiment, throw away any posted by un-executed
@@ -201,6 +235,13 @@ class Dynamics(NetworkExperiment):
         else:
             # process doesn't have loci, return an empty dict
             return dict()
+        
+    def setLociForProcess(self, p: Process, loci: Dict[str, Locus]):
+        '''Set the loci for a process.
+
+        :param p: the process
+        :param loci: the loci'''
+        self._processLoci[p] = loci
 
     def perElementEventDistribution(self, t: float) -> EventDistribution:
         """Return the distribution of of all processes' per-element events at the given time.
@@ -323,6 +364,12 @@ class Dynamics(NetworkExperiment):
 
         self.postEvent(t, p, e, repeat, name)
 
+    def postEquilibriumEvent(self, p: Process, e: Any, ef: EventFunction):
+        def check(t, n):
+            if self._process.atPartialEquilibrium(t) :
+                ef(t, n)
+        self.postRepeatingEvent(0, 0.1, p, e, check)
+
     def unpostEvent(self, id: int, fatal: bool = True) -> Optional[float]:
         '''Un-post a posted event. This is only legal before the
         event has fired, and will normally raise a KeyError if called on one
@@ -438,6 +485,30 @@ class Dynamics(NetworkExperiment):
                 # fire the event
                 (et, _, p, pef, e, name) = cast(PostedEvent, pe)
                 self.setCurrentSimulationTime(et)  # set the correct time
+                # print("pre-pef()")
                 pef()
+                # print("posted event") 
+                # print(et, p, pef, e, name)
                 self.eventFired(t, p, name, e)
                 n += 1
+
+    def notifyEmerged(self, config, t):
+        self.postEvent(t, None, None, lambda t, e: self._reconfigureEvent(t, e, config), "reconfigure")
+
+    def _reconfigureEvent(self, t, e, config):
+        for process in self._process.allProcesses():
+            process.reconfigure(config)
+
+    def generateInteraction(self, source, target, name, preset):
+        if preset == 'cross_immunity':
+            # print("cross immunity!")
+            # name, matrix, target
+            sourceModel = self._findProcess(source)
+            targetModel = self._findProcess(target)
+            return ("cross_immunity_" + target, InteractionMatrix.generateCrossImmuneInteractionMatrixForTwoModels(sourceModel, targetModel, [c for c in sourceModel.compartments() if "S" not in c]+ [c for c in targetModel.compartments() if "S" not in c]), target, name)
+        
+    def _findProcess(self, name):
+        for process in self._process.allProcesses():
+            if process.instanceName() == name:
+                return process
+        raise Exception("Process not found")

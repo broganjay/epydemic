@@ -46,6 +46,7 @@ class SIR(CompartmentedModel):
 
     # Locus containing the edges at which dynamics can occur
     SI: Final[str] = 'epydemic.sir.SI'                 #: Edge able to transmit infection.
+    IR: Final[str] = "epydemic.sir.IR" ###
 
     def __init__(self, name: str = None):
         super().__init__(name)
@@ -58,13 +59,18 @@ class SIR(CompartmentedModel):
 
         [pInfected, pInfect, pRemove] = self.getParameters(params,
                                                            [self.P_INFECTED, self.P_INFECT, self.P_REMOVE])
-
+        
         self.addCompartment(self.SUSCEPTIBLE, 1 - pInfected)
         self.addCompartment(self.INFECTED, pInfected)
         self.addCompartment(self.REMOVED, 0.0)
 
+        self.setSusceptibleCompartment(self.SUSCEPTIBLE)
+        self.setInfectiousCompartment(self.INFECTED)
+        self.setRemovedCompartment(self.REMOVED)
+
         self.trackEdgesBetweenCompartments(self.SUSCEPTIBLE, self.INFECTED, name=self.SI)
         self.trackNodesInCompartment(self.INFECTED)
+        # self.trackEdgesBetweenCompartments(self.INFECTED, self.REMOVED, name=self.IR)
 
         self.addEventPerElement(self.SI, pInfect, self.infect, name=self.INFECTED)
         self.addEventPerElement(self.INFECTED, pRemove, self.remove, name=self.REMOVED)
@@ -77,10 +83,8 @@ class SIR(CompartmentedModel):
 
         :param t: the simulation time
         :param e: the edge transmitting the infection, susceptible-infected'''
-        (n, _) = e
-        self.changeCompartment(n, self.INFECTED)
-        self.markOccupied(e, t, firstOnly=True)
-        self.markHit(n, t, firstOnly=True)
+        self.compartmentChangeEvent(t, e, self.INFECTED)
+
 
     def remove(self, t: float, n: Any):
         '''Perform a removal event. This changes the compartment of
@@ -88,4 +92,6 @@ class SIR(CompartmentedModel):
 
         :param t: the simulation time (unused)
         :param n: the node'''
-        self.changeCompartment(n, self.REMOVED)
+        self.compartmentChangeEvent(t, n, self.REMOVED)
+        
+        

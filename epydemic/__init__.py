@@ -59,6 +59,7 @@ from .drawset import DrawSet
 # network processes
 from .process import Process, EventFunction, EventDistribution
 from .loci import Locus
+from .interaction_matrix import InteractionMatrix
 
 # network generators
 from .generator import NetworkGenerator
@@ -99,6 +100,7 @@ from .pulsecoupled import PulseCoupledOscillator
 # monitoring anmd summarisation processes
 from .monitor import Monitor
 from .statistics import NetworkStatistics
+from .equilibrium_monitor import EqMonitor
 
 # process combinators
 from .processsequence import ProcessSequence
@@ -106,3 +108,8 @@ from .processsequence import ProcessSequence
 # other experiments
 from .newmanziff import NewmanZiff, BondPercolation, SitePercolation
 from .nz_extended import ResidualBondPercolation
+
+from .interactions import IMMUNISES, SUSCEPTS, HINDERS, BOOSTS
+from .composite_compartmentedmodel import CompositeCompartmentedModel
+from .dormant_sir_model import DormantSIR
+from .interactions import Interactions

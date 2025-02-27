@@ -56,8 +56,8 @@ class Monitor(Process):
         :returns: the result name'''
         return '{stem}-{locus}'.format(stem=Monitor.TIMESERIES_STEM, locus=l)
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, name: str = None):
+        super().__init__(name)
 
     def reset(self):
         '''Reset the process.'''

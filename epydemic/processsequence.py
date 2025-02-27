@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
-from typing import List, Dict, Any, Union, cast
+from typing import List, Dict, Any, Union, cast, Tuple
 from epydemic import Process, Dynamics
 
 class ProcessSequence(Process):
@@ -54,7 +54,7 @@ class ProcessSequence(Process):
         self._allProcesses: List[Process] = []
         for p in self._processes:
             self._allProcesses.extend(p.allProcesses())
-
+        self._interactions: List[Tuple[str, str, int]] = []
         super().__init__()
 
 
@@ -181,3 +181,6 @@ class ProcessSequence(Process):
         for p in self.processes():
             res.update(p.results())
         return res
+    
+    def addInteraction(self, source: str, interactionType: str, target: str, weight: float = 1.0):
+        self._interactions.append((source, target, interactionType, weight))

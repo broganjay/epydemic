@@ -17,9 +17,12 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
-from typing import Union, Tuple, Any
+from typing import Union, Tuple, Any, List, Literal
 
 # the parts of a network (graph)
 Node = Any                   #: A node in a network, which may be any object.
 Edge = Tuple[Node, Node]     #: An edge in a network, connecting exactly two nodes (which may be the same).
 Element = Union[Node, Edge]  #: An element in a simulation, either a node or an edge.
+InteractionType = Union[str, List[Tuple[str, str]]] #: A type of interaction between processes e.g cross-immunity
+Configuration = Tuple[str, List[str], List[str], List[str], InteractionType] #: A concise way to represent a process with enough information for reconfiguration events
+#: Format is (pname, susceptible-cs, infectious-cs, removed-cs, interaction)

@@ -1,0 +1,59 @@
+[
+  { "imports": { "filename": "sir", "model": "sir" } },
+  {
+    "process": {
+      "inheriting": "sir",
+      "name": "d1",
+      "args": [
+        { "name": "p_infected", "value": 0.05 },
+        { "name": "p_infect", "value": 0.02 },
+        { "name": "p_remove", "value": 0.2 }
+      ],
+      "staging": { "time": 0.0 },
+      "interactions": [{ "type": "suscepts", "with": "d2" }]
+    }
+  },
+  {
+    "process": {
+      "inheriting": "sir",
+      "name": "d2",
+      "args": [
+        { "name": "p_infected", "value": 0.05 },
+        { "name": "p_infect", "value": 0.02 },
+        { "name": "p_remove", "value": 0.2 }
+      ],
+      "staging": { "time": 0.0 },
+      "interactions": []
+    }
+  },
+  {
+    "model": {
+      "type": "compartment_model",
+      "name": "sir",
+      "parameters": ["p_infected", "p_infect", "p_remove"],
+      "compartments": ["s", "i", "r"],
+      "distribution": [
+        { "compartment": "i", "probability": "p_infected" },
+        { "compartment": "s", "probability": -1 }
+      ],
+      "transitions": [
+        {
+          "type": "edge",
+          "name": "infect",
+          "left_node": "s",
+          "right_node": "i",
+          "from": "i",
+          "to": "i",
+          "probability": "p_infect"
+        },
+        {
+          "type": "node",
+          "name": "remove",
+          "from": "i",
+          "to": "r",
+          "probability": "p_remove"
+        }
+      ]
+    }
+  }
+]

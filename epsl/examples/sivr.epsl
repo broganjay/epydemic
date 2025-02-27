@@ -1,0 +1,44 @@
+new compartment_model sivr {
+
+    parameters {
+        p_infected,
+        p_infect,
+        p_remove,
+        efficacy,
+        t_offset = 0.0
+    }
+
+    compartments {
+        s,
+        i,
+        r
+    }
+
+    attributes {
+        vaccinated [Boolean],
+    }
+
+    distribution {
+        $i with p $p_infected 
+        $s otherwise
+    }
+
+    event_source {
+
+        infect at edge s-i -> i-i with p $p_infect 
+        remove at node compartment i -> r with p $p_remove 
+
+    }
+
+    event_target {
+
+        $infect {
+            
+            if $vaccinated then proceed with p $efficacy
+
+        }
+
+    }
+    
+
+}

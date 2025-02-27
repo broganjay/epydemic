@@ -113,11 +113,14 @@ class StochasticDynamics(Dynamics):
 
                     # perform the event by calling the event function,
                     # passing the event time and element
-                    ef(t, e)
-                    self.eventFired(t, l.process(), name, e)
-
-                    # increment the event counter
-                    events += 1
+                    pEventFiring = self.getEventSuccessProbability(t, e, ef, name, l.process().instanceName())
+                    k = rng.random()
+                    if k < pEventFiring:
+                        # bi: should still increment event counter?
+                        ef(t, e)
+                        self.eventFired(t, l.process(), name, e)
+                        # increment the event counter
+                        events += 1
 
         # if we get here through hitting equilibrium then any
         # posted events will be discarded and any possible stochastic
@@ -132,3 +135,24 @@ class StochasticDynamics(Dynamics):
         res = self.experimentalResults()
         self.simulationEnded(res)
         return res
+    
+    def getEventSuccessProbability(self, t, e, ef, name, origin):
+        if isinstance(e, tuple):
+            n1, n2 = e
+            n1cs = self.network().nodes[n1]
+            n2cs = self.network().nodes[n2]
+            originC = "compartment@" + origin
+            n1COrigin = n1cs[originC]
+            n2COrigin = n2cs[originC]
+            interactions = self._interactions.get(origin, None)
+            if interactions is None:
+                return 1
+            for interaction in interactions:
+                name, mat, target, efName = interaction
+                if efName != ef.__name__:
+                    continue
+                targetC = "compartment@" + target
+                row = n1COrigin + "+" + n1cs[targetC]
+                column = n2COrigin + "+" + n2cs[targetC]
+                return mat.getByName(row, column)
+        return 1

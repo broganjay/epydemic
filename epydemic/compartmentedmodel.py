@@ -44,6 +44,13 @@ class CompartmentedLocus(Locus):
 
         :returns: the compartments'''
         return []
+    
+    def replaceCompartment(self, c: str, new_c: str):
+        '''Replace a compartment with a new compartment.
+
+        :param c: the compartment to replace
+        :param new_c: the new compartment'''
+        pass
 
 
 class CompartmentedNodeLocus(CompartmentedLocus):
@@ -98,6 +105,14 @@ class CompartmentedNodeLocus(CompartmentedLocus):
         :param n: the node'''
         if not isinstance(n, tuple):
             super().removeHandler(g, n)
+
+    def replaceCompartment(self, c, new_c):
+        '''Replace a compartment with a new compartment.
+
+        :param c: the compartment to replace
+        :param new_c: the new compartment'''
+        if self._compartment == c:
+            self._compartment = new_c
 
 
 class CompartmentedEdgeLocus(CompartmentedLocus):
@@ -182,7 +197,7 @@ class CompartmentedEdgeLocus(CompartmentedLocus):
         '''Node enters one of the edge's compartments, add any incident edges
         that now have the correct orientation.
 
-        :param g: the network
+        :param g: the network+
         :param n: the node'''
         for (nn, mm) in g.edges(n):
             match = self.matches(g, nn, mm)
@@ -211,6 +226,16 @@ class CompartmentedEdgeLocus(CompartmentedLocus):
                 if match == 1:
                     #print('edge ({n}, {m}) removed from {l}'.format(n = n, m = m, l = self._name))
                     self.discard((n, m))
+
+    def replaceCompartment(self, c, new_c):
+        '''Replace a compartment with a new compartment.
+
+        :param c: the compartment to replace
+        :param new_c: the new compartment'''
+        if self._left == c:
+            self._left = new_c
+        if self._right == c:
+            self._right = new_c
 
 
 class CompartmentedModel(Process):
@@ -245,6 +270,12 @@ class CompartmentedModel(Process):
         self.COMPARTMENT = self.stateVariable('compartment')
         self.OCCUPIED = self.stateVariable('occupied')
 
+        self.dormant = False ### by default not dormant
+
+        self._susceptibleCompartments = [] ###
+        self._infectiousCompartments = [] ###
+        self._removedCompartments = [] ###
+
 
     # ---------- Setup and initialisation ----------
 
@@ -270,7 +301,8 @@ class CompartmentedModel(Process):
         # mark edges as unoccupied
         for (_, _, data) in g.edges(data=True):
             data[self.OCCUPIED] = False
-
+        
+        self.decorateAllNames()
         # place nodes in initial compartments
         self.initialCompartments()
 
@@ -291,9 +323,11 @@ class CompartmentedModel(Process):
         a = 0.0
         for (_, p) in dist:
             a += p
-        if not math.isclose(a, 1.0):
-            raise ValueError('Bad initial compartment distribution (probabilities don\'t sum to one)')
-
+        if self.dormant and not math.isclose(a, 0.0):
+            raise ValueError('Bad initial compartment distribution (probabilities of dormant model don\'t sum to zero)')
+        if not self.dormant and not math.isclose(a, 1.0):
+            raise ValueError('Bad initial compartment distribution (probabilities of non-dormant model don\'t sum to one)')
+        # print("returning dist, a =", a, "dist =", dist, "for model", self.instanceName())
         return dist
 
 
@@ -318,7 +352,6 @@ class CompartmentedModel(Process):
                 if r <= a:
                     # change node's compartment
                     self.changeInitialCompartment(n, c)
-
                     # on to the next node
                     break
 
@@ -458,7 +491,6 @@ class CompartmentedModel(Process):
         :param l: (optional) the locus
         :returns: the locus'''
         locus = super().addLocus(n, l)
-
         # if we've added a compartmented locus, add handler functions for
         # when its population changes
         if isinstance(locus, CompartmentedLocus):
@@ -481,7 +513,7 @@ class CompartmentedModel(Process):
             (n, m) = e
             cs = [self.getCompartment(n), self.getCompartment(m)]
         else:
-            # element is a node, check its own compartmnent
+            # element is a node, check its own compartment
             cs = [self.getCompartment(e)]
         return cs
 
@@ -566,6 +598,19 @@ class CompartmentedModel(Process):
         :param c: the new compartment for the node'''
         g = self.network()
         oc = g.nodes[n][self.COMPARTMENT]
+
+        # record oc in disease history
+
+        # first check if history exists 
+        if 'history' not in g.nodes[n]:
+            g.nodes[n]['history'] = {}
+        
+        # then check if the instance has a history entry
+        if self.instanceName() not in g.nodes[n]['history']:
+            g.nodes[n]['history'][self.instanceName()] = []
+
+        if oc is not None:
+            g.nodes[n]['history'][self.instanceName()].append((oc, self.currentSimulationTime()))
 
         # propagate effects of leaving the current compartment
         if oc is not None:
@@ -669,3 +714,111 @@ class CompartmentedModel(Process):
 
         # remove the edge from the network
         super().removeEdge(n, m)
+    
+    def effects(self):
+        '''Return the effects of the model.
+
+        :returns: the effects'''
+        return self._effects
+    
+    def susceptibleCompartments(self):
+        '''Return the susceptible compartments.
+
+        :returns: the susceptible compartments'''
+        return self._susceptibleCompartments
+    
+    def infectiousCompartments(self):
+        '''Return the infectious compartments.
+
+        :returns: the infectious compartments'''
+        return self._infectiousCompartments
+    
+    def removedCompartments(self):
+        '''Return the removed compartments.
+
+        :returns: the removed compartments'''
+        return self._removedCompartments
+    
+    def setSusceptibleCompartment(self, c: str):
+        '''Set the susceptible compartment.
+
+        :param c: the susceptible compartment'''
+        self._susceptibleCompartments.append(c)
+    
+    def setInfectiousCompartment(self, c: str):
+        '''Set the infectious compartment.
+
+        :param c: the infectious compartment'''
+        self._infectiousCompartments.append(c)
+
+    def setRemovedCompartment(self, c: str):
+        '''Set the removed compartment.
+
+        :param c: the removed compartment'''
+        self._removedCompartments.append(c)
+
+    def compartmentChangeEvent(self, t: float, e: Any, compartment: str):
+        if isinstance(e, tuple):
+            (n, m) = e
+            self.markOccupied(e, t, firstOnly=True)
+            self.markHit(n, t, firstOnly=True)
+        else:
+            n = e
+        self.changeCompartment(n, self.decoratedName(compartment))
+
+    def configuration(self):
+        return (self.instanceName(), self._susceptibleCompartments, self._infectiousCompartments, self._removedCompartments, self.interactionType())
+    
+    def interactionType(self):
+        return "CROSS_IMMUNITY"
+    
+    def reconfigure(self, config):
+        # also realise that there are multiple processes, so auto-decorate 
+        name, sus, inf, rem, itype = config
+        if config == self.configuration():
+            print("self! ignore...")
+            return
+        if itype == "CROSS_IMMUNITY":
+            # then replace own susceptible compartment the new for simplicity
+            # also technically assume that only one susceptible compartment 
+            susceptible_c = sus[0]
+            self._replaceSusceptibleCompartment(susceptible_c)
+
+    def _replaceSusceptibleCompartment(self, c: str):
+        # replace in loci
+        print(self._effects.keys())
+        self.replaceCompartmentInLocus(c)
+        copy = self._effects[self._susceptibleCompartments[0]]
+        del self._effects[self._susceptibleCompartments[0]]
+        self._effects[c] = copy
+        print(self._effects.keys())
+        for name, locus in self.loci().items():
+            print(locus.compartments())
+
+    def replaceCompartmentInLocus(self, compartment):
+        for name, locus in self.loci().items():
+            if compartment in locus.compartments():
+                locus.replaceCompartment(self._susceptibleCompartments[0], compartment)
+
+    def decorateAllNames(self):
+        # decorate compartments
+        newCompartments = {}
+        for c, f in self._compartments.items():
+            newCompartments[self.decoratedName(c)] = f
+            if c in self._effects.keys():
+                copy = self._effects[c]
+                del self._effects[c]
+                self._effects[self.decoratedName(c)] = copy
+            for name, locus in self.loci().items():
+                if c in locus.compartments():
+                    locus.replaceCompartment(c, self.decoratedName(c))
+            if c in self._susceptibleCompartments:
+                self._susceptibleCompartments.remove(c)
+                self._susceptibleCompartments.append(self.decoratedName(c))
+            if c in self._infectiousCompartments:
+                self._infectiousCompartments.remove(c)
+                self._infectiousCompartments.append(self.decoratedName(c))
+            if c in self._removedCompartments:
+                self._removedCompartments.remove(c)
+                self._removedCompartments.append(self.decoratedName(c))
+        self._compartments = newCompartments

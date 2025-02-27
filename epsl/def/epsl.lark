@@ -1,0 +1,52 @@
+start: defs+
+
+defs: (using)* (model_def | process_def)+
+
+using: "using" NAME "from" NAME
+
+model_def: "new" MODEL_TYPE NAME "{" model_def_body "}"
+
+model_def_body: "parameters" "{" parameters "}" "compartments" "{" compartments "}" "distribution" "{" distributions "}" "transitions" "{" transitions "}"
+
+parameters: (NAME ",")*
+
+compartments: (NAME ",")*
+
+distributions : distribution+
+
+distribution: ((NAME "with p" probability ",") | (NAME "otherwise" ","))
+
+transitions: transition*
+
+transition: (node_transition | edge_transition)
+
+node_transition: (NAME "at node" "compartment" NAME "->" NAME "with" "p" probability ",")
+
+edge_transition: (NAME "at edge" NAME "-" NAME "->" NAME "-" NAME "with" "p" probability ",")
+
+process_def: "new" "process" "modelled" NAME "named" NAME "{" process_def_body "}"
+
+process_def_body: "args" "{" args "}" "staging" "{" staging "}" "interactions" "{" interactions "}"
+
+args: arg*
+
+arg: NAME "=" probability ","
+
+staging: "at" "time" TIME ","
+
+interactions: interaction*
+
+interaction: (NAME "with" "model" NAME ",")
+
+NAME: LETTER (LETTER | DIGIT | "_")*
+
+probability: "0." (DIGIT)+ | "$" NAME 
+
+TIME: (DIGIT)+ | "$" NAME
+
+MODEL_TYPE: "compartment_model"
+
+%import common.LETTER
+%import common.DIGIT
+%import common.WS
+%ignore WS

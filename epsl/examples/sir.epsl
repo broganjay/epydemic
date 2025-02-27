@@ -1,0 +1,25 @@
+new compartment_model sir {
+
+    parameters {
+        p_infected,
+        p_infect,
+        p_remove,
+    }
+
+    compartments {
+        s,
+        i,
+        r,
+    }
+
+    distribution {
+        i with p $p_infected,
+        s otherwise,
+    }
+
+    transitions {
+        infect at edge s-i -> i-i with p $p_infect,
+        remove at node compartment i -> r with p $p_remove,
+    }
+
+}

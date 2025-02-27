@@ -113,6 +113,7 @@ class NetworkExperiment(Experiment):
         # generate a working network instance
         gen = self.networkGenerator()
         g = gen.set(params).generate()
+        
         self.setNetwork(g)
 
         # update the parameters with the topology marker for the generator

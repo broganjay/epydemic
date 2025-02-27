@@ -1,0 +1,46 @@
+import sys
+from typing import Dict, Any
+if sys.version_info >= (3, 8):
+    from typing import Final
+else:
+    # backport compatibility with older typing
+    from typing_extensions import Final
+from epydemic import CompartmentedModel
+
+
+class $name(CompartmentedModel):
+
+    # Model parameters
+    $params_def_string
+
+    # Possible dynamics states of a node for SIR dynamics
+    $compartments_def_string
+
+    # Locus containing the edges at which dynamics can occur
+    $edge_def_string
+
+    def __init__(self, name: str = None):
+        super().__init__(name)
+
+    def build(self, params: Dict[str, Any]):
+        '''Build the SIR model.
+
+        :param params: the model parameters'''
+        super().build(params)
+
+        $get_params_string
+
+        $add_compartments_string
+
+
+        #self.setSusceptibleCompartment(self.SUSCEPTIBLE)
+        #self.setInfectiousCompartment(self.INFECTED)
+        #self.setRemovedCompartment(self.REMOVED)
+
+        $tracking_nodes_string
+
+        $tracking_edges_string        
+
+        $add_events_string
+
+    $def_events_string

@@ -1,0 +1,177 @@
+# Composite compartmented model formed by combining two or more compartmented models
+#
+# Copyright (C) 2025 Brogan Irwin
+#
+# This file is part of epydemic, epidemic network simulations in Python.
+#
+# epydemic is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# epydemic is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
+
+import sys
+from typing import Dict, Any
+if sys.version_info >= (3, 8):
+    from typing import List, Tuple
+else:
+    # backport compatibility with older typing
+    from typing_extensions import List, Tuple
+from epydemic import CompartmentedModel, Dynamics, CompartmentedEdgeLocus, CompartmentedNodeLocus
+
+Interaction = Tuple[str,
+                    str,
+                    str,
+                    float,]
+
+class CompositeCompartmentedModel(CompartmentedModel):
+    '''The CompositeCompartmentedModel class can be thought of as a super-model
+    in the sense that it combines several different models together, creating new 
+    compartments based on the interactions between the diseases.
+    '''
+
+    def __init__(self, models: List[CompartmentedModel], name: str = None):
+        super().__init__(name)
+        self._models = models
+        self._interactions = []
+        self._nameChanges = {}
+
+    def build(self, params: Dict[str, Any]):
+        super().build(params)
+        for m in self._models:
+            m.build(params)
+
+    def addInteraction(self, interaction: Interaction):
+        self._interactions.append(interaction)
+    
+    def setDynamics(self, d: Dynamics):
+        '''Set the dynamics.
+
+        :param d: the dynamics'''
+        super().setDynamics(d)
+        for m in self._models:
+            m.setDynamics(d)
+
+    def setUp(self, params: Dict[str, Any]):
+        '''Set up the processes.
+        :param params: the experimental parameters'''
+        self._createCompositeCompartments()
+        self._addCompositeLociAndEvents()
+        self._enforceInteractions()
+        super().setUp(params)
+    
+    def reset(self):
+        '''Reset the model to its initial state.'''
+        super().reset()
+        for m in self._models:
+            m.reset()
+
+    def _createCompositeCompartments(self):
+        '''Create the composite compartments based on the compartments of the models.'''
+        nNonDormant = sum(map(lambda m: (1 if m.dormant else 0), self._models))
+        for m in self._models:
+            self._nameChanges[m.instanceName()] = []
+            initialDist = m.initialCompartmentDistribution()
+            for c, p in initialDist:
+                self.addCompartment(self.decorateCompartmentName(c, m.instanceName()), self.normalise(p, nNonDormant))
+                nameChange = {c : self.decorateCompartmentName(c, m.instanceName())}
+                self._nameChanges[m.instanceName()].append(nameChange)
+                if c in m.susceptibleCompartments():
+                    self.setSusceptibleCompartment(self.decorateCompartmentName(c, m.instanceName()))
+                elif c in m.infectiousCompartments():
+                    self.setInfectiousCompartment(self.decorateCompartmentName(c, m.instanceName()))
+                elif c in m.removedCompartments():
+                    self.setRemovedCompartment(self.decorateCompartmentName(c, m.instanceName()))
+
+    def decorateCompartmentName(self, compartment: str, model: str):
+        '''Decorate the compartment name with the model name.'''
+        return f"{compartment}@{model}"
+    
+    def _addCompositeLociAndEvents(self):
+        for m in self._models:
+            for n, l in m.loci().items():
+                changedLocus = self._createModifiedLocus(n, l, m.instanceName())
+                self.addLocus(changedLocus.name(), changedLocus)
+                oldEvents = m.perElementEventDistribution(0)
+                for locus, pr, ef, name in oldEvents:
+                    if locus.name() == l.name():
+                        # then event is concerned with current locus
+                        # so use the new locus and recreate the event
+                        self.addEventPerElement(changedLocus, pr, self.modifyEventFunction(ef, self.decorateCompartmentName(name, m.instanceName())), self.decorateCompartmentName(name, m.instanceName()))
+    
+    def _createModifiedLocus(self, name, locus, model):   
+        existingCompartments = locus.compartments()
+        if len(existingCompartments) == 1:
+            # then node
+            return CompartmentedNodeLocus(name, self.decorateCompartmentName(existingCompartments[0], model))
+        elif len(existingCompartments) == 2:
+            # then edge
+            return CompartmentedEdgeLocus(name, self.decorateCompartmentName(existingCompartments[0], model), self.decorateCompartmentName(existingCompartments[1], model))
+    
+    def modifyEventFunction(self, ef, compartment):
+        print(ef)
+        return lambda t, e: ef(t, e, self, compartment)
+
+    def _enforceInteractions(self):
+        for p1, p2, type, value in self._interactions:
+            if type == "MAKE_SUSCEPTIBLE":
+                # then the removed state for p1
+                # is the susceptible state for p2
+                # no new compartments needed but one 
+                # must be removed (p1 recovered) and loci 
+                # and events updated
+                self._susceptInteraction(p1, p2)
+
+    def fetchNewName(self, model, name):
+        for nameChange in self._nameChanges[model]:
+            [(old, new)] = nameChange.items()
+            if old == name:
+                return new
+            
+    def atPartialEquilibrium(self, t):
+        for c in self.infectiousCompartments():
+            locus = self.loci().get(self.decoratedName(c))
+            if locus is not None:
+                if len(locus) > 0:
+                    return False
+        return True
+    
+    def _susceptInteraction(self, p1, p2):
+        p1RemovedCompartment = self.decorateCompartmentName(self.getModelByName(p1).removedCompartments()[0], p1)
+        p2SusceptibleCompartment = self.decorateCompartmentName(self.getModelByName(p2).susceptibleCompartments()[0], p2)
+        self._replaceAllOccurrences(p1RemovedCompartment, p2SusceptibleCompartment)
+
+    def _replaceAllOccurrences(self, old, new):
+        # replace in loci
+        # replace in events 
+        newLoci = {}
+        for n, l in self.loci().items():
+            compartments = l.compartments()
+            if old in compartments:
+                newCompartments = list(map(lambda c: new if c == old else c, compartments))
+                newLoci[n] = CompartmentedNodeLocus(n, newCompartments[0]) if len(newCompartments) == 1 else CompartmentedEdgeLocus(n, newCompartments[0], newCompartments[1])
+                print("NEW LOCI", newLoci, newLoci[n].compartments())
+        self._loci = newLoci
+        newEvents = []
+        for l, p, ef, name in self.perElementEventDistribution(0):
+            if new in l.compartments():
+                newEvents.append((l, p, self.modifyEventFunction(ef, new), name))
+        self._perElementEvents = newEvents
+
+
+    def getModelByName(self, name):
+        for m in self._models:
+            if m.instanceName() == name:
+                return m
+        return None
+
+    @staticmethod
+    def normalise(p, nModels):
+        return p / nModels
