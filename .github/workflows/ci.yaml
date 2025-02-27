@@ -5,7 +5,7 @@ on:
     branches:
       - master
       - dev
-      - bi-multiple-diseases
+      # - bi-multiple-diseases
 
 
 jobs:
