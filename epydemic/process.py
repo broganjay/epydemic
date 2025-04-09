@@ -19,7 +19,7 @@
 
 from typing import Dict, List, Tuple, Any, Callable, Iterable, Union, Optional
 from networkx import Graph
-from epydemic import Node, Edge, Element
+from epydemic import Node, Edge, Element, Condition
 from epyc import ResultsDict
 
 # There is a circular import between Process and Dynamics, and between
@@ -745,11 +745,14 @@ class Process():
         """
         self._dynamics.postRepeatingEvent(t, dt, self, e, ef, name)
 
-    def atPartialEquilibrium(self):
-        pass
+    def postConditionalEvent(self, t: float, e: Any, ef: EventFunction, condition: Condition, name: Optional[str] = None):
+        self._dynamics.postConditionalEvent(t, self, e, ef, condition, name)
 
-    def reconfigure(self, config):
-        pass
+    @staticmethod
+    def decorateWith(k: str, n: str):
+        '''Decorate a name with the given instance name.
 
-    def configuration(self):
-        return ("", [], [], [], [])
+        :param k: the name
+        :param n: the instance name
+        :returns: the decorated name'''
+        return k + "@" + n

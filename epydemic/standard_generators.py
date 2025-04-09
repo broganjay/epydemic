@@ -17,9 +17,11 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
+import json
 from epydemic import NetworkGenerator
-from networkx import Graph, fast_gnp_random_graph, barabasi_albert_graph
+from networkx import Graph, fast_gnp_random_graph, barabasi_albert_graph, configuration_model
 import sys
+import numpy as np
 if sys.version_info >= (3, 8):
     from typing import Any, Dict, Optional, Final
 else:
@@ -146,3 +148,90 @@ class BANetwork(NetworkGenerator):
         # build the network
         g = barabasi_albert_graph(N, M)
         return g
+    
+class ConfigurationModel(NetworkGenerator):
+
+    N: Final[str] = 'N'         #: Experimental parameter for the size (order) of the network.
+    DIST: Final[str] = 'dist'   #: Experimental parameter for the degree distribution.
+
+    def __init__(self, params: Dict[str, Any] = None, limit: Optional[int] = None):
+        super().__init__(params, limit)
+
+    def topology(self) -> str:
+        '''Return the topoology flag for this generator.
+
+        :returns: the topology marker ("CM")'''
+        return 'CM'
+    
+    def _generate(self, params: Dict[str, Any]) -> Graph:
+        '''Generate a configuration model network from an order (represented by the parameter :attr:`N`)
+        and a degree distribution (:attr:`DIST`).
+
+        :param params: experimental parameters
+        :returns: the configuration model network'''
+        N = params[self.N]
+        dist = params[self.DIST]
+        if isinstance(dist, str):
+            dist = json.loads(dist)
+        g = configuration_model(dist)
+        g = Graph(g)
+        return g
+    
+class ClusteredNetwork(NetworkGenerator):
+
+    N: Final[str] = 'N'         #: Experimental parameter for the size (order) of the network.
+    TREEMEAN: Final[str] = 'treeMean'   #: Experimental parameter for the mean single-edge degree
+    TRIMEAN: Final[str] = 'triMean'   #: Experimental parameter for the mean triangle participation
+
+    def __init__(self, params: Dict[str, Any] = None, limit: Optional[int] = None):
+        super().__init__(params, limit)
+
+    def topology(self) -> str:
+        '''Return the topoology flag for this generator.
+
+        :returns: the topology marker ("GCM")'''
+        return 'GCM'
+    
+    def _generate(self, params: Dict[str, Any]) -> Graph:
+        g = Graph()
+        N = params[self.N]
+        treeMean = params[self.TREEMEAN]
+        triMean = params[self.TRIMEAN]
+        g.add_nodes_from(range(N))
+
+        kTree = np.random.poisson(treeMean, N)
+        kTri = np.random.poisson(triMean, N)
+        
+        kTri += kTri % 2
+
+        treeStubs = []
+        triStubs = []
+
+        for i in range(N):
+            treeStubs.extend([i] * kTree[i])
+            triStubs.extend([i] * kTri[i])
+        
+        np.random.shuffle(treeStubs)
+        if len(treeStubs) % 2 != 0:
+            treeStubs.pop()
+
+        for i in range(0, len(treeStubs), 2):
+            u, v = treeStubs[i], treeStubs[i + 1]
+            if u != v:
+                g.add_edge(u, v)
+        
+        np.random.shuffle(triStubs)
+
+        remainder = len(triStubs) % 3
+        if remainder != 0:
+            triStubs = triStubs[:-remainder]
+
+        for i in range(0, len(triStubs), 3):
+            u, v, w = triStubs[i], triStubs[i + 1], triStubs[i + 2]
+            if u != v and u != w and v != w:
+                g.add_edge(u, v)
+                g.add_edge(v, w)
+                g.add_edge(w, u)
+            
+        return g
+

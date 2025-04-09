@@ -1,6 +1,6 @@
-# Gillespie dynamics base class
+# Deterministic dynamics base class
 #
-# Copyright (C) 2017--2022 Simon Dobson
+# Copyright (C) 2017--2022 Brogan Irwin
 #
 # This file is part of epydemic, epidemic network simulations in Python.
 #
@@ -23,12 +23,11 @@ from networkx import Graph
 from epydemic import Dynamics, rng, Process, NetworkGenerator
 
 
-class StochasticDynamics(Dynamics):
-    '''A dynamics that runs stochastically in :term:`continuous
-    time`. This is a very efficient and statistically exact approach,
-    but requires that the statistical properties of the events making
-    up the process are known. See Gillespie
-    :cite:`Gillespie76,Gillespie77` for a discussion of the technique.
+class DeterministicDynamics(Dynamics):
+    '''A dynamics that runs deterministically in :term:`continuous
+    time`. This is a very rudimentary approach with limited use cases,
+    which does include the experimental reproduction of various epidemic 
+    modelling literature.
 
     :param p: the process to run
     :param g: network or network generator (optional, can be provided later)
@@ -39,7 +38,7 @@ class StochasticDynamics(Dynamics):
         super().__init__(p, g)
 
     def do(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        '''Run the simulation using Gillespie dynamics.
+        '''Run the simulation deterministically.
 
         :param params: the experimental parameters
         :returns: the experimental results dict'''
@@ -67,37 +66,22 @@ class StochasticDynamics(Dynamics):
                     events += self.runPendingEvents(et)
                     t = et
             else:
-                # we have stochastic events to run
+                # we have events to run
 
                 # shuffle the transitions
                 #random.shuffle(transitions)
 
-                # calculate the timestep delta
-                r1 = rng.random()
-                dt = (1.0 / a) * math.log(1.0 / r1)
-
-                # calculate which event happens
-                (l, _, ef, name) = transitions[0]
-                if len(transitions) > 1:
-                    # choose the rate threshold
-                    r2 = rng.random()
-                    xc = r2 * a
-
-                    # find the largest event for which the cumulative rates
-                    # are less than the random threshold
-                    xs = 0
-                    for v in range(len(transitions)):
-                        (l, xsp, ef, name) = transitions[v]
-                        if (xs + xsp) > xc:
-                            break
-                        else:
-                            xs += xsp
+                # calculate the timestep delta (constant)
+                dt = 1.0 / a
 
                 # compute increment to the simulation time
                 nt = t + dt
 
                 # fire any events posted for at or before this time
                 events += self.runPendingEvents(nt)
+
+                transitions.sort(key=lambda x: (-x[1], x[3]))  
+                (l, _, ef, name) = transitions[0] 
 
                 # update the simulation time
                 t = nt

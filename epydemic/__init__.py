@@ -52,7 +52,7 @@ from numpy.random import default_rng
 rng = default_rng()
 
 # helper types
-from .types import Node, Edge, Element
+from .types import Node, Edge, Element, Condition
 from .bbt import TreeNode
 from .drawset import DrawSet
 
@@ -63,7 +63,7 @@ from .interaction_matrix import InteractionMatrix
 
 # network generators
 from .generator import NetworkGenerator
-from .standard_generators import FixedNetwork, ERNetwork, BANetwork
+from .standard_generators import FixedNetwork, ERNetwork, BANetwork, ConfigurationModel, ClusteredNetwork
 from .plc_generator import PLCNetwork
 from .coreperiphery_generator import CorePeripheryNetwork
 from .modular_generator import ModularNetwork
@@ -73,6 +73,9 @@ from .networkexperiment import NetworkExperiment
 from .networkdynamics import Dynamics
 from .synchronousdynamics import SynchronousDynamics
 from .stochasticdynamics import StochasticDynamics
+from .deterministicdynamics import DeterministicDynamics
+
+from .compartment_history import CompartmentHistory
 
 # compartmented models
 from .compartmentedmodel import CompartmentedModel, CompartmentedLocus, CompartmentedNodeLocus, CompartmentedEdgeLocus
@@ -100,7 +103,6 @@ from .pulsecoupled import PulseCoupledOscillator
 # monitoring anmd summarisation processes
 from .monitor import Monitor
 from .statistics import NetworkStatistics
-from .equilibrium_monitor import EqMonitor
 
 # process combinators
 from .processsequence import ProcessSequence
@@ -108,8 +110,3 @@ from .processsequence import ProcessSequence
 # other experiments
 from .newmanziff import NewmanZiff, BondPercolation, SitePercolation
 from .nz_extended import ResidualBondPercolation
-
-from .interactions import IMMUNISES, SUSCEPTS, HINDERS, BOOSTS
-from .composite_compartmentedmodel import CompositeCompartmentedModel
-from .dormant_sir_model import DormantSIR
-from .interactions import Interactions

@@ -59,8 +59,12 @@ class SIR_FixedRecovery(SIR):
         self.addCompartment(self.REMOVED, 0.0)
 
         self.trackEdgesBetweenCompartments(self.SUSCEPTIBLE, self.INFECTED, name=self.SI)
-        self.addFixedRateEvent(self.SI, pInfect, self.infect, name=self.INFECTED)
 
+        self.trackNodesInCompartment(self.INFECTED)
+        self.trackNodesInCompartment(self.REMOVED)
+
+        # self.addFixedRateEvent(self.SI, pInfect, self.infect, name=self.INFECTED)
+        self.addEventPerElement(self.SI, pInfect, self.infect, name=self.INFECTED)
 
     def setUp(self, params: Dict[str, Any]):
         '''After setting up as normal, post remove events for any nodes that are
@@ -70,7 +74,7 @@ class SIR_FixedRecovery(SIR):
         super().setUp(params)
 
         # traverse the set of initially-infected nodes
-        tInfected = params[self.T_INFECTED]
+        [tInfected] = self.getParameters(params, [self.T_INFECTED])
         g = self.network()
         for n in self.compartment(self.INFECTED):
             # record that the node was initially infected
@@ -91,7 +95,10 @@ class SIR_FixedRecovery(SIR):
         super().infect(t, e)
 
         # record the infection time
-        (n, _) = e
+        if isinstance(e, tuple):
+            (n, _) = e
+        else:
+            n = e
         self.network().nodes[n][self.INFECTION_TIME] = t
 
         # post the removal event for the appropriate time in the future

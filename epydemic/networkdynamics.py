@@ -26,7 +26,7 @@ if sys.version_info >= (3, 8):
 else:
     from typing_extensions import Final
 from networkx import Graph
-from epydemic import NetworkExperiment, Locus, Process, NetworkGenerator, EventFunction, EventDistribution, Element, InteractionMatrix
+from epydemic import NetworkExperiment, Locus, Process, NetworkGenerator, EventFunction, EventDistribution, Element, InteractionMatrix, Condition, rng
 
 # Event types (not exported outside this file)
 PostedEventFunction = Callable[[], None]
@@ -70,6 +70,7 @@ class Dynamics(NetworkExperiment):
         self._postedEvents: List[PostedEvent] = []                                   # pri-queue of fixed-time events
         self._postedEventFinder: Dict[int, PostedEvent] = {}                         # mapping from event id to event structure
         self._interactions: Dict[str, List[Tuple[str, InteractionMatrix, str]]] = dict()   # dict from names to interaction specs
+        self._conditionals: List[Tuple[float, Process, Element, EventFunction, Condition, str]] = [] # list of conditional events
 
 
     # ---------- Configuration ----------
@@ -156,7 +157,7 @@ class Dynamics(NetworkExperiment):
                     for target, props in spec.items():
                         preset = props[0]
                         name = props[1]
-                        self._interactions[source].append(self.generateInteraction(source, target, name, preset))
+                        self._interactions[source].extend(self.generateInteractions(source, target, name, preset))
         else: # then hasn't been jsonified -- so uses std tuples
             for source, specs in std_interactions:
                 if self._interactions.get(source) is None:
@@ -164,7 +165,7 @@ class Dynamics(NetworkExperiment):
                 for spec in specs:
                     for target, props in spec.items():
                         preset, name = props
-                        self._interactions[source].append(self.generateInteraction(source, target, name, preset))
+                        self._interactions[source].extend(self.generateInteractions(source, target, name, preset))
                 
 
     def tearDown(self):
@@ -178,6 +179,8 @@ class Dynamics(NetworkExperiment):
         # discard any remaining posted events
         self._postedEventFinder = {}
         self._postedEvents = []
+        self._interactions = {}
+        self._conditionals = []
 
 
     # ---------- Stochastic events (drawn from a distribution) ----------
@@ -370,6 +373,10 @@ class Dynamics(NetworkExperiment):
                 ef(t, n)
         self.postRepeatingEvent(0, 0.1, p, e, check)
 
+    def postConditionalEvent(self, t: float, p: Process, e: Element, ef: EventFunction, condition: Condition, name: Optional[str] = None):
+        self._conditionals.append((t, p, e, ef, condition, name))
+
+
     def unpostEvent(self, id: int, fatal: bool = True) -> Optional[float]:
         '''Un-post a posted event. This is only legal before the
         event has fired, and will normally raise a KeyError if called on one
@@ -477,6 +484,7 @@ class Dynamics(NetworkExperiment):
         :returns: the number of events fired'''
         n = 0
         while True:
+            self._checkConditionals(t)
             pe = self.nextPendingEventBefore(t)
             if pe is None:
                 # no more pending events, return however many we've fired already
@@ -486,29 +494,130 @@ class Dynamics(NetworkExperiment):
                 (et, _, p, pef, e, name) = cast(PostedEvent, pe)
                 self.setCurrentSimulationTime(et)  # set the correct time
                 # print("pre-pef()")
-                pef()
-                # print("posted event") 
-                # print(et, p, pef, e, name)
-                self.eventFired(t, p, name, e)
-                n += 1
+                if p is None:
+                    r = 1
+                else:
+                    r = self.getEventSuccessProbability(et, e, pef, name, p.instanceName())
+                if rng.random() <= r:
+                    pef()
+                    self.eventFired(t, p, name, e)
+                    n += 1
 
-    def notifyEmerged(self, config, t):
-        self.postEvent(t, None, None, lambda t, e: self._reconfigureEvent(t, e, config), "reconfigure")
+    def _checkConditionals(self, t: float):
+        indexesToPop = []
+        for i in range(len(self._conditionals)):
+            (et, p, e, ef, condition, name) = self._conditionals[i]
+            if self._evaluateCondition(t, condition):
+                # print("firing conditional event", name, "at time", t)
+                self.postEvent(t, p, e, ef, name)
+                indexesToPop.append(i)
+        for i in indexesToPop:
+            self._conditionals[i] = None
+        self._conditionals = [c for c in self._conditionals if c is not None]
 
-    def _reconfigureEvent(self, t, e, config):
-        for process in self._process.allProcesses():
-            process.reconfigure(config)
+    def _evaluateCondition(self, t: float, condition: Condition) -> bool:
+        ctype, target = condition
+        if ctype == "equilibrium":
+            targetProcess = self._findProcess(target)
+            return (targetProcess.atEquilibrium(t) and t < self._process.maximumTime())
+            # ensure not firing anything after the simulation is supposed to have ended
+        else:
+            raise NotImplementedError(ctype, "type not yet implemented!")
+        return False
 
-    def generateInteraction(self, source, target, name, preset):
+    def generateInteractions(self, source, target, name, preset):
         if preset == 'cross_immunity':
             # print("cross immunity!")
-            # name, matrix, target
             sourceModel = self._findProcess(source)
             targetModel = self._findProcess(target)
-            return ("cross_immunity_" + target, InteractionMatrix.generateCrossImmuneInteractionMatrixForTwoModels(sourceModel, targetModel, [c for c in sourceModel.compartments() if "S" not in c]+ [c for c in targetModel.compartments() if "S" not in c]), target, name)
+            return [("cross_immunity_" + target, InteractionMatrix.generateCrossImmuneInteractionMatrixForTwoModels(sourceModel, targetModel, [c for c in sourceModel.compartments() if "S" not in c]+ [c for c in targetModel.compartments() if "S" not in c]), target, name)]
+        elif preset == "must_have_for_infection":
+            sourceModel = self._findProcess(source)
+            targetModel = self._findProcess(target)
+            edgewiseInteraction = ("infection_precondition_" + target, InteractionMatrix.generateInfectionPreconditionInteractionMatrixForTwoModels(sourceModel, targetModel, [c for c in sourceModel.compartments() if "S" in c], [c for c in targetModel.compartments() if "S" not in c]), target, name)
+            nodewiseInteraction = ("infection_precondition_" + target, InteractionMatrix.generateNodewiseInfectionPreconditionInteractionMatrixForTwoModels(sourceModel, targetModel, [c for c in sourceModel.compartments() if "S" in c], [c for c in targetModel.compartments() if "S" not in c]), target, name)
+            return [edgewiseInteraction, nodewiseInteraction]
+        elif preset == "enables_infection":
+            sourceModel = self._findProcess(source)
+            targetModel = self._findProcess(target)
+            edgewiseInteraction = ("infection_enabler_" + target, InteractionMatrix.generateInfectionEnablerInteractionMatrixForTwoModels(sourceModel, targetModel, [c for c in targetModel.compartments() if "S" in c]), target, name)
+            nodewiseInteraction = ("infection_enabler_" + target, InteractionMatrix.generateNodewiseInfectionEnablerInteractionMatrixForTwoModels(sourceModel, targetModel, [c for c in targetModel.compartments() if "S" in c]), target, name)
+            return [edgewiseInteraction, nodewiseInteraction]
+        else:
+            raise Exception("Preset not found")
         
     def _findProcess(self, name):
         for process in self._process.allProcesses():
             if process.instanceName() == name:
                 return process
-        raise Exception("Process not found")
+        raise Exception("Process not found") 
+    
+    def getEventSuccessProbability(self, t, e, ef, name, origin):
+        if e == None:
+            return 1
+        elif isinstance(e, tuple):
+            n1, n2 = e
+            n1cs = self.network().nodes[n1]
+            n2cs = self.network().nodes[n2]
+            originC = "compartment@" + origin
+            n1COrigin = n1cs[originC]
+            n2COrigin = n2cs[originC]
+            interactions = self._interactions.get(origin, None)
+            if interactions is None:
+                return 1
+            for interaction in interactions:
+                name, mat, target, efName = interaction
+                targetC = "compartment@" + target
+                row = n1COrigin + "+" + n1cs[targetC]
+                column = n2COrigin + "+" + n2cs[targetC]
+                try:
+                    # print("returngot (edge) byName", mat.getByName(row, column), "for row", row, "column", column, "interaction", name, "originC", originC, "ef.__name__", ef.__name__, "efName", efName)
+                    # print(mat)
+                    # if ef.__name__ == "infect":
+                    #     print("returning for infect (edge)", mat.getByName(row, column))
+                    #     print("n1c (origin)", origin, n1COrigin)
+                    #     print("n1c", target, n1cs[targetC])
+                    #     print("n2c (origin)", origin, n2COrigin)
+                    #     print("n2c", target, n2cs[targetC])
+
+                    return mat.getByName(row, column)
+                except ValueError:
+                    # then must be wrong type of mat -- continue
+                    continue
+        else: # then single node
+            ncs = self.network().nodes[e]
+            originC = "compartment@" + origin
+            nCOrigin = ncs[originC]
+            interactions = self._interactions.get(origin, None)
+            if interactions is None:
+                return 1
+            for interaction in interactions:
+                name, mat, target, efName = interaction
+                targetC = "compartment@" + target
+                row = nCOrigin
+                column = ncs[targetC]
+                try:
+                    if mat.getByName(row, column) == 0:
+                        pass
+                        # print("returning 0 node (name", name + ") row", row, "column", column)
+                    # print(mat)
+                    # print("returngot (node) byName", mat.getByName(row, column), "for row", row, "column", column, "interaction", name, "originC", originC, "ef.__name__", ef.__name__, "efName", efName)
+                    # # print(mat)
+                    # if ef.__name__ == "infect":
+                    #     print("returning for infect (node) event row,col,val", row, column, mat.getByName(row, column))
+                    return mat.getByName(row, column)
+                except ValueError:
+                    # then must be wrong type of mat -- continue
+                    continue
+            # TODO: implement this
+        return 1
+    
+    def getSuitableEmergenceNode(self, model, t):
+        nodesList = list(self.network().nodes)
+        while not len(nodesList) == 0:
+            rng.shuffle(nodesList)
+            n = int(rng.random() * len(nodesList))
+            if self.getEventSuccessProbability(t, n, model.emerge, "try_emergence", model.instanceName()) > 0:
+                return n
+            nodesList.pop(n)
+        return None

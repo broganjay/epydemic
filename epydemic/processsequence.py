@@ -179,8 +179,23 @@ class ProcessSequence(Process):
         :returns: a dict of experimental results'''
         res = super().results()
         for p in self.processes():
-            res.update(p.results())
+            res.update(self.decorateAllCompartments(p.results(), p.instanceName()))
         return res
     
     def addInteraction(self, source: str, interactionType: str, target: str, weight: float = 1.0):
         self._interactions.append((source, target, interactionType, weight))
+
+    def decorateAllCompartments(self, res: Dict[str, Any], instanceName: str) -> Dict[str, Any]:
+        '''Decorate all the compartments in the results dict with the
+        instance name of the process.
+
+        :param res: the results dict
+        :param instanceName: the instance name
+        :returns: the decorated results dict'''
+        if instanceName is None:
+            return res
+        
+        for k in list(res):
+            res[self.decorateWith(k, instanceName)] = res.pop(k)
+
+        return res

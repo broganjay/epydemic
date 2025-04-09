@@ -64,13 +64,9 @@ class SIR(CompartmentedModel):
         self.addCompartment(self.INFECTED, pInfected)
         self.addCompartment(self.REMOVED, 0.0)
 
-        self.setSusceptibleCompartment(self.SUSCEPTIBLE)
-        self.setInfectiousCompartment(self.INFECTED)
-        self.setRemovedCompartment(self.REMOVED)
-
         self.trackEdgesBetweenCompartments(self.SUSCEPTIBLE, self.INFECTED, name=self.SI)
         self.trackNodesInCompartment(self.INFECTED)
-        # self.trackEdgesBetweenCompartments(self.INFECTED, self.REMOVED, name=self.IR)
+        self.trackNodesInCompartment(self.REMOVED)
 
         self.addEventPerElement(self.SI, pInfect, self.infect, name=self.INFECTED)
         self.addEventPerElement(self.INFECTED, pRemove, self.remove, name=self.REMOVED)
@@ -93,5 +89,26 @@ class SIR(CompartmentedModel):
         :param t: the simulation time (unused)
         :param n: the node'''
         self.compartmentChangeEvent(t, n, self.REMOVED)
-        
-        
+
+    def atEquilibrium(self, t: float) -> bool:
+        '''Check if the model has reached equilibrium. This is the case
+        when there are no more susceptible nodes.
+
+        :param t: the current simulation time
+        :returns: True if the model is at equilibrium'''
+       
+        return (
+                ((len(self.locus(self.SI)) == 0 and len(self.locus(self.INFECTED)) == 0)
+                    or
+                super().atEquilibrium(t))
+                    and
+                (t > 0.0)
+            )
+
+    def getPossibleCompartmentTransitions(self):
+
+        return [
+            (self.SUSCEPTIBLE, self.INFECTED),
+            (self.INFECTED, self.REMOVED)
+            # only s->i and i->r
+        ]

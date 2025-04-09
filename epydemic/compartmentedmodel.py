@@ -18,9 +18,10 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import math
-from networkx import Graph
+from itertools import permutations
+from networkx import Graph, DiGraph, all_simple_paths
 from typing import Dict, Any, List, Tuple, Callable, cast
-from epydemic import rng, Locus, Process, Node, Edge, Element
+from epydemic import rng, Locus, Process, Node, Edge, Element, CompartmentHistory
 
 # Helper types
 Handlers = Tuple[Callable[[Graph, Element], None],   # add handler
@@ -261,6 +262,10 @@ class CompartmentedModel(Process):
     T_HITTING: str = "tHitting"                   #: State variable holding the infection time of a node.
     HITTING_PROCESS_NAME: str = "hittingProcess"  #: State variable holding the name of the infecing process.
 
+    START_COMPARTMENT: str = "startCompartment"  
+    EMERGENCE_CONDITION: str = "emergenceCondition" 
+    EMERGENCE_TARGET: str = "emergenceTarget"
+
     def __init__(self, name: str = None):
         super().__init__(name)
         self._compartments: Dict[str, float] = dict()         # compartment -> initial probability
@@ -270,11 +275,6 @@ class CompartmentedModel(Process):
         self.COMPARTMENT = self.stateVariable('compartment')
         self.OCCUPIED = self.stateVariable('occupied')
 
-        self.dormant = False ### by default not dormant
-
-        self._susceptibleCompartments = [] ###
-        self._infectiousCompartments = [] ###
-        self._removedCompartments = [] ###
 
 
     # ---------- Setup and initialisation ----------
@@ -285,6 +285,22 @@ class CompartmentedModel(Process):
         self._compartments = dict()
         self._effects = dict()
 
+    def emerge(self, t, n):
+        if self._emerged:
+            # then already emerged
+            return
+        # default emergence behaviour is to randomly seed a node on the network
+        # n = int(rng.random() * len(self.network().nodes))
+        en = self.getSuitableEmergenceNode(t)
+        if en == None:
+            # then failed to emerge
+            return
+        else:
+            # print("emerging at en, cs, t =", t, self.network().nodes[en])
+            # inRemoved = len(self._dynamics._findProcess("d1").compartment("epydemic.sir.I@d1"))
+            # # if inRemoved > TODO HERE
+            self.postEvent(t, en, self.infect, "spontaneous_infection")
+            self._emerged = True
 
     def setUp(self, params: Dict[str, Any]):
         '''Set up the initial population of nodes into compartments.
@@ -302,8 +318,24 @@ class CompartmentedModel(Process):
         for (_, _, data) in g.edges(data=True):
             data[self.OCCUPIED] = False
         
-        self.decorateAllNames()
+        # self.decorateAllNames()
         # place nodes in initial compartments
+        try:
+            [emergenceCondition] = self.getParameters(params, [self.EMERGENCE_CONDITION])
+            [emergenceTarget] = self.getParameters(params, [self.EMERGENCE_TARGET])
+        except KeyError:
+            emergenceCondition = None
+            emergenceTarget = None
+        if emergenceCondition is not None:
+            self._emerged = False
+            [startCompartment] = self.getParameters(params, [self.START_COMPARTMENT])
+            for c in self._compartments:
+                if c != startCompartment:
+                    self.changeCompartmentInitialOccupancy(c, 0.0)
+            self.changeCompartmentInitialOccupancy(startCompartment, 1.0) 
+            self.params = params
+            self.postConditionalEvent(0, None, self.emerge, (emergenceCondition, emergenceTarget), "emergence")
+
         self.initialCompartments()
 
 
@@ -323,11 +355,10 @@ class CompartmentedModel(Process):
         a = 0.0
         for (_, p) in dist:
             a += p
-        if self.dormant and not math.isclose(a, 0.0):
-            raise ValueError('Bad initial compartment distribution (probabilities of dormant model don\'t sum to zero)')
-        if not self.dormant and not math.isclose(a, 1.0):
-            raise ValueError('Bad initial compartment distribution (probabilities of non-dormant model don\'t sum to one)')
-        # print("returning dist, a =", a, "dist =", dist, "for model", self.instanceName())
+
+        if not math.isclose(a, 1.0):
+            raise ValueError('Bad initial compartment distribution (probabilities of model don\'t sum to one)')
+
         return dist
 
 
@@ -428,6 +459,29 @@ class CompartmentedModel(Process):
 
         return g
 
+    def inverseSkeletonise(self) -> Graph:
+        # more complicated as must also remove nodes that have been hit
+        g = self.network()
+        edges = []
+        for (n, m, data) in g.edges(data=True):
+            if (data[self.OCCUPIED]):
+                # edge is occupied, mark it to be removed
+                # (safe because there are no parallel edges)
+                edges.insert(0, (n, m))
+        
+        # remove all the occupied edges
+        g.remove_edges_from(edges)
+
+        # remove all nodes that have been hit
+        nodes = []
+        for (n, data) in g.nodes(data=True):
+            if self.T_HITTING in data.keys():
+                nodes.insert(0, n) 
+
+        g.remove_nodes_from(nodes)
+
+        return g
+
 
     # ---------- Managing compartments ----------
 
@@ -462,6 +516,8 @@ class CompartmentedModel(Process):
         :returns: the locus used to track the nodes'''
         if name is None:
             name = c
+
+        # name = self.decoratedNameInInstance(name)
 
         # add locus
         locus = CompartmentedNodeLocus(name, c)
@@ -608,9 +664,21 @@ class CompartmentedModel(Process):
         # then check if the instance has a history entry
         if self.instanceName() not in g.nodes[n]['history']:
             g.nodes[n]['history'][self.instanceName()] = []
+            timings = []
+            oldHistory = CompartmentHistory()
+        else:
+            # tuple of format (template, [t1, t2, ...])
+            timings = g.nodes[n]['history'][self.instanceName()][1]
+            oldHistory = g.nodes[n]['history'][self.instanceName()][0]
 
-        if oc is not None:
-            g.nodes[n]['history'][self.instanceName()].append((oc, self.currentSimulationTime()))
+        # add new compartment to history -- assume old has already been added
+        # (this is a fair assumption, as even initial compartments method uses this)
+
+        timings.append(self.currentSimulationTime())
+
+        newHistory = CompartmentHistory.updateHistory(oldHistory, c)
+
+        g.nodes[n]['history'][self.instanceName()] = (newHistory, timings)
 
         # propagate effects of leaving the current compartment
         if oc is not None:
@@ -621,6 +689,7 @@ class CompartmentedModel(Process):
 
         # propagate effects of entering new compartment
         self._callEnterHandlers(n, c)
+
 
 
     def markOccupied(self, e: Edge, t: float, firstOnly: bool = True):
@@ -720,85 +789,15 @@ class CompartmentedModel(Process):
 
         :returns: the effects'''
         return self._effects
-    
-    def susceptibleCompartments(self):
-        '''Return the susceptible compartments.
-
-        :returns: the susceptible compartments'''
-        return self._susceptibleCompartments
-    
-    def infectiousCompartments(self):
-        '''Return the infectious compartments.
-
-        :returns: the infectious compartments'''
-        return self._infectiousCompartments
-    
-    def removedCompartments(self):
-        '''Return the removed compartments.
-
-        :returns: the removed compartments'''
-        return self._removedCompartments
-    
-    def setSusceptibleCompartment(self, c: str):
-        '''Set the susceptible compartment.
-
-        :param c: the susceptible compartment'''
-        self._susceptibleCompartments.append(c)
-    
-    def setInfectiousCompartment(self, c: str):
-        '''Set the infectious compartment.
-
-        :param c: the infectious compartment'''
-        self._infectiousCompartments.append(c)
-
-    def setRemovedCompartment(self, c: str):
-        '''Set the removed compartment.
-
-        :param c: the removed compartment'''
-        self._removedCompartments.append(c)
 
     def compartmentChangeEvent(self, t: float, e: Any, compartment: str):
         if isinstance(e, tuple):
-            (n, m) = e
+            (n, _) = e
             self.markOccupied(e, t, firstOnly=True)
-            self.markHit(n, t, firstOnly=True)
         else:
             n = e
-        self.changeCompartment(n, self.decoratedName(compartment))
-
-    def configuration(self):
-        return (self.instanceName(), self._susceptibleCompartments, self._infectiousCompartments, self._removedCompartments, self.interactionType())
-    
-    def interactionType(self):
-        return "CROSS_IMMUNITY"
-    
-    def reconfigure(self, config):
-        # also realise that there are multiple processes, so auto-decorate 
-        name, sus, inf, rem, itype = config
-        if config == self.configuration():
-            print("self! ignore...")
-            return
-        if itype == "CROSS_IMMUNITY":
-            # then replace own susceptible compartment the new for simplicity
-            # also technically assume that only one susceptible compartment 
-            susceptible_c = sus[0]
-            self._replaceSusceptibleCompartment(susceptible_c)
-
-    def _replaceSusceptibleCompartment(self, c: str):
-        # replace in loci
-        print(self._effects.keys())
-        self.replaceCompartmentInLocus(c)
-        copy = self._effects[self._susceptibleCompartments[0]]
-        del self._effects[self._susceptibleCompartments[0]]
-        self._effects[c] = copy
-        print(self._effects.keys())
-        for name, locus in self.loci().items():
-            print(locus.compartments())
-
-    def replaceCompartmentInLocus(self, compartment):
-        for name, locus in self.loci().items():
-            if compartment in locus.compartments():
-                locus.replaceCompartment(self._susceptibleCompartments[0], compartment)
+        self.markHit(n, t, firstOnly=True)
+        self.changeCompartment(n, compartment)
 
     def decorateAllNames(self):
         # decorate compartments
@@ -812,13 +811,40 @@ class CompartmentedModel(Process):
             for name, locus in self.loci().items():
                 if c in locus.compartments():
                     locus.replaceCompartment(c, self.decoratedName(c))
-            if c in self._susceptibleCompartments:
-                self._susceptibleCompartments.remove(c)
-                self._susceptibleCompartments.append(self.decoratedName(c))
-            if c in self._infectiousCompartments:
-                self._infectiousCompartments.remove(c)
-                self._infectiousCompartments.append(self.decoratedName(c))
-            if c in self._removedCompartments:
-                self._removedCompartments.remove(c)
-                self._removedCompartments.append(self.decoratedName(c))
         self._compartments = newCompartments
+
+    def getSuitableEmergenceNode(self, t):
+        return self._dynamics.getSuitableEmergenceNode(self, t)
+
+    def getPossibleCompartmentTransitions(self):
+        '''Return all possible compartment transitions, used in the construction of
+        disease templates. The default implementation returns an empty list.
+
+        :returns: a list of compartment transitions'''
+        return []
+    
+    def generateTransitionGraph(self):
+
+        transitionGraph = DiGraph()
+
+        for c in self.compartments():
+            transitionGraph.add_node(c)
+
+        for (c1, c2) in self.getPossibleCompartmentTransitions():
+            transitionGraph.add_edge(c1, c2)
+
+        return transitionGraph
+    
+    def generatePossibleHistoriesTemplates(self):
+
+        transitionGraph = self.generateTransitionGraph()
+
+        allTransitions = []
+
+        for startC, targetC in permutations(transitionGraph.nodes, 2):
+            paths = list(all_simple_paths(transitionGraph, startC, targetC))
+            allTransitions.extend(list(map(tuple, paths)))
+        
+        return list(map(lambda t: CompartmentHistory(t), allTransitions))
+        
+
