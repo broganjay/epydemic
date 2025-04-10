@@ -29,16 +29,19 @@ from epyc import ResultsDict
 # Process, and not for execution.  (See
 # https://www.stefaanlippens.net/circular-imports-type-hints-python.html)
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from epydemic import Dynamics, Locus
 
 
 # Types for handling events
-EventFunction = Callable[[float, Element], None]                     #: Type of event-handler functions.
-EventDistribution = List[Tuple['Locus', float, EventFunction, str]]  #: Type of event distributions.
+EventFunction = Callable[[float, Element], None]  #: Type of event-handler functions.
+EventDistribution = List[
+    Tuple["Locus", float, EventFunction, str]
+]  #: Type of event distributions.
 
 
-class Process():
+class Process:
     """A process that runs over a network. This is the abstract base class
     for all network processes.  It provides the essential routines to
     build, set-up, run, and extract results from a
@@ -67,8 +70,8 @@ class Process():
     """
 
     # defaults
-    DEFAULT_MAX_TIME: float = 20000.0      #: Default maximum simulation time.
-    UNIQUE_SEQ: int = 0                    #: Process unique sequence number.
+    DEFAULT_MAX_TIME: float = 20000.0  #: Default maximum simulation time.
+    UNIQUE_SEQ: int = 0  #: Process unique sequence number.
 
     def __init__(self, name: str = None):
         super().__init__()
@@ -77,7 +80,7 @@ class Process():
         self._maxTime = self.DEFAULT_MAX_TIME
 
         # set the hierarchy
-        self._containerProcess: 'Process' = None
+        self._containerProcess: "Process" = None
 
         # set the identifiers
         self._instanceName = name
@@ -86,53 +89,47 @@ class Process():
         self._runId = 0
 
         # reset this instance
-        #self.reset()
-
+        # self.reset()
 
     # ---------- Process instance and run identifiers ----------
 
-    def processes(self) -> List['Process']:
-        '''Return a list of component processes. For a standard process
+    def processes(self) -> List["Process"]:
+        """Return a list of component processes. For a standard process
         this is just the process itself.
 
-        :returns: a list containing this process'''
+        :returns: a list containing this process"""
         return [self]
 
-
-    def allProcesses(self) -> List['Process']:
-        '''Return a recursive list of component processes. For a standard process
+    def allProcesses(self) -> List["Process"]:
+        """Return a recursive list of component processes. For a standard process
         this is the same as calling :math:`processes`..
 
-        :returns: a list containing this process'''
+        :returns: a list containing this process"""
         return self.processes()
 
-
     def uniqueId(self) -> int:
-        '''Return the unique instance identifier of this process.
+        """Return the unique instance identifier of this process.
 
-        :returns: the instacne id'''
+        :returns: the instacne id"""
         return self._uniqueId
 
-
     def runId(self) -> int:
-        '''Return the unique run identifier for the current run. This
+        """Return the unique run identifier for the current run. This
         is updated whenever the process is reset by a call to :meth:`reset`.
 
-        :returns: the run id'''
+        :returns: the run id"""
         return self._runId
 
-
     def instanceName(self) -> str:
-        '''Return the instance name of the current process.
+        """Return the instance name of the current process.
 
-        :returns: the instance name or None'''
+        :returns: the instance name or None"""
         return self._instanceName
-
 
     # ---------- Model parameter access ----------
 
     def decoratedName(self, k: str) -> str:
-        '''Decorate a name with the process' instance name.
+        """Decorate a name with the process' instance name.
 
         The name is left unchanged if the process does not have an instance name.
 
@@ -140,24 +137,22 @@ class Process():
         associated with a sapecific process instance.
 
         :param k: the name
-        :returns: the decorated name.'''
+        :returns: the decorated name."""
         if self.instanceName() is None:
             return k
         else:
             return k + "@" + self.instanceName()
 
-
     def undecoratedName(self, k: str) -> str:
-        '''Undecorate a name if it is dcrated with the process' instance name.
+        """Undecorate a name if it is dcrated with the process' instance name.
 
         :param k: the name
-        :returns: the undecorated name.'''
-        i = k.find('@')
+        :returns: the undecorated name."""
+        i = k.find("@")
         return k if i < 0 else k[:i]
 
-
     def decoratedNameInInstance(self, k: str) -> str:
-        '''Return the name of a parameter or result name in a specific process instance.
+        """Return the name of a parameter or result name in a specific process instance.
 
         This uses :meth:`decoratedName` to decorate the name with any
         process instance name.
@@ -165,12 +160,13 @@ class Process():
         :param k: the name name
         :return: the decorated parameter name
 
-        '''
+        """
         return self.decoratedName(k)
 
-
-    def getDecoratedName(self, d: Dict[str, Any], k: Union[str, Tuple[str, Any]]) -> Any:
-        '''Return the named parameter or result.
+    def getDecoratedName(
+        self, d: Dict[str, Any], k: Union[str, Tuple[str, Any]]
+    ) -> Any:
+        """Return the named parameter or result.
 
         This method takes account of the process' instance name if it
         has one, allowing multiple process instance. If there is no
@@ -187,7 +183,7 @@ class Process():
         :param k: the decorated name
         :returns the value
 
-        '''
+        """
 
         # extract actual key
         actualk = k[0] if isinstance(k, tuple) else k
@@ -196,19 +192,20 @@ class Process():
         dk = self.decoratedNameInInstance(actualk)
 
         try:
-            return d[dk]                # decorated name
+            return d[dk]  # decorated name
         except KeyError:
             try:
-                return d[actualk]       # undecorated name as fallback
+                return d[actualk]  # undecorated name as fallback
             except KeyError:
                 if isinstance(k, tuple):
-                    return k[1]              # return the default value supplied
+                    return k[1]  # return the default value supplied
                 else:
                     raise KeyError(actualk)  # no default, re-throw the exception
 
-
-    def getParameters(self, params: Dict[str, Any], ks: List[Union[str, Tuple[str, Any]]]) -> List[Any]:
-        '''Return the parameters of a process.
+    def getParameters(
+        self, params: Dict[str, Any], ks: List[Union[str, Tuple[str, Any]]]
+    ) -> List[Any]:
+        """Return the parameters of a process.
 
         This should be used in :meth:`Process.build` and
         :meth:`Process.setUp` to access the process' experimental
@@ -231,16 +228,17 @@ class Process():
         :param ks: a list of parameters, optionally with default values
         :returns: the extracted parameters
 
-        '''
+        """
         vs = []
         for k in ks:
             v = self.getDecoratedName(params, k)
             vs.append(v)
         return vs
 
-
-    def setParameters(self, params: Dict[str, Any], kvs: Dict[str, Any]) -> Dict[str, Any]:
-        '''Set the parameters.
+    def setParameters(
+        self, params: Dict[str, Any], kvs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Set the parameters.
 
         This method should be used when setting up an experiment. The
         parameters will be decorated with an instance name.
@@ -249,14 +247,13 @@ class Process():
         :params kvs: the parameter names and values
         :returns: the updated dict
 
-        '''
+        """
         for k in kvs.keys():
             params[self.decoratedNameInInstance(k)] = kvs[k]
         return params
 
-
     def setResults(self, rc: Dict[str, Any], kvs: Dict[str, Any]) -> Dict[str, Any]:
-        '''Set the results.
+        """Set the results.
 
         This should be used in :meth:`Process.results` to add results
         to the results dict of the process when it completes. The
@@ -266,14 +263,13 @@ class Process():
         :params kvs: the result names and values
         :returns: the updated dict
 
-        '''
+        """
         for k in kvs.keys():
             rc[self.decoratedNameInInstance(k)] = kvs[k]
         return rc
 
-
     def getResults(self, rc: ResultsDict, ks: List[str]) -> List[Any]:
-        '''Return results from an ``epyc`` results dict.
+        """Return results from an ``epyc`` results dict.
 
         This should be used when accessing the results of an
         experiment, to extract the results that correspond to a
@@ -294,41 +290,37 @@ class Process():
         :param ks: a list of parameters
         :returns: the extracted results
 
-        '''
+        """
         vs = []
         for k in ks:
             v = self.getDecoratedName(rc, k)
             vs.append(v)
         return vs
 
-
     # ---------- Process state variables ----------
 
     def stateVariable(self, stem: str) -> str:
-        '''Create a unique name for a state variable using the given stem.
+        """Create a unique name for a state variable using the given stem.
 
         :param stem: the name stem
-        :returns: the state variable name'''
-        #return '{s}-{n}'.format(s=stem, n=self.uniqueId())
+        :returns: the state variable name"""
+        # return '{s}-{n}'.format(s=stem, n=self.uniqueId())
         return self.decoratedName(stem)
-
 
     # ---------- Process containment ----------
 
-    def setContainer(self, ps: 'Process'):
-        '''Register this process as being composed as part of another process.
+    def setContainer(self, ps: "Process"):
+        """Register this process as being composed as part of another process.
 
-        :param ps: the containing process'''
+        :param ps: the containing process"""
         self._containerProcess = ps
 
-
-    def container(self) -> 'Process':
-        '''Return the container process this process is part of. This will
+    def container(self) -> "Process":
+        """Return the container process this process is part of. This will
         be None for "simple" processes.
 
-        :return: the container process or None'''
+        :return: the container process or None"""
         return self._containerProcess
-
 
     # ---------- Setup and initialisation ----------
 
@@ -340,7 +332,6 @@ class Process():
         self._runId += 1
         self._perElementEvents = []
         self._perLocusEvents = []
-
 
     def build(self, params: Dict[str, Any]):
         """Build the process model. This should be overridden by sub-classes,
@@ -354,7 +345,6 @@ class Process():
 
         """
         pass
-
 
     def setUp(self, params: Dict[str, Any]):
         """Set up the network under the given dynamics. The default does
@@ -370,14 +360,12 @@ class Process():
         """
         pass
 
-
     def tearDown(self):
         """Tear down any structures built for this run of the process. The
         default does nothing.
 
         """
         pass
-
 
     # ---------- State access and update ----------
 
@@ -389,7 +377,6 @@ class Process():
         """
         self._dynamics.setNetwork(g)
 
-
     def network(self) -> Graph:
         """Return the network the process is running over.
 
@@ -398,22 +385,19 @@ class Process():
         """
         return self._dynamics.network()
 
+    def setDynamics(self, d: "Dynamics"):
+        """Set the instance of :class:`Dynamics` that runs the process.
 
-    def setDynamics(self, d: 'Dynamics'):
-        '''Set the instance of :class:`Dynamics` that runs the process.
-
-        :param d: the dynamics'''
+        :param d: the dynamics"""
         self._dynamics = d
 
-
-    def dynamics(self) -> 'Dynamics':
-        '''Return the instance of :class:`Dynamics` running this process.
+    def dynamics(self) -> "Dynamics":
+        """Return the instance of :class:`Dynamics` running this process.
 
         :returns: the dynamics
 
-        '''
+        """
         return self._dynamics
-
 
     def setMaximumTime(self, t: float):
         """Set the maximum default simulation time. The default is given by
@@ -432,24 +416,21 @@ class Process():
         """
         self._maxTime = t
 
-
     def maximumTime(self) -> float:
         """Return the maximum assumed simulation time.
 
         :returns: the maximum simulation time"""
         return self._maxTime
 
-
     # ---------- Termination and results ----------
 
     def currentSimulationTime(self) -> float:
-        '''Return the current simulation time. Only makes sense
+        """Return the current simulation time. Only makes sense
         when called from a running simulation, for example within
         an event handler.
 
-        :returns: the time'''
+        :returns: the time"""
         return self.dynamics().currentSimulationTime()
-
 
     def atEquilibrium(self, t: float) -> bool:
         """Test whether the process is an equilibrium. The default simply
@@ -464,8 +445,7 @@ class Process():
         :returns: True if the proceess is now at equilibrium
 
         """
-        return (t >= self.maximumTime())
-
+        return t >= self.maximumTime()
 
     def results(self) -> Dict[str, Any]:
         """Create and return an empty dict to be filled with experimental
@@ -476,7 +456,6 @@ class Process():
         """
         return dict()
 
-
     # ---------- Accessing and evolving the network ----------
 
     def addNode(self, n: Node, **kwds):
@@ -485,7 +464,6 @@ class Process():
         :param n: the new node
         :param kwds: (optional) node attributes"""
         self.network().add_node(n, **kwds)
-
 
     def addNodesFrom(self, ns: Iterable[Node], **kwds):
         """Add all the nodes in the given iterable to the working network. Any
@@ -499,13 +477,11 @@ class Process():
         for n in ns:
             self.addNode(n, **kwds)
 
-
     def removeNode(self, n: Node):
         """Remove a node from the working network.
 
         :param n: the node"""
         self.network().remove_node(n)
-
 
     def removeNodesFrom(self, ns: Iterable[Node]):
         """Remove all the nodes in the given iterable from the working
@@ -517,7 +493,6 @@ class Process():
         """
         for n in ns:
             self.removeNode(n)
-
 
     def addEdge(self, n: Node, m: Node, **kwds):
         """Add an edge between nodes. Any keyword arguments are added as edge
@@ -531,11 +506,10 @@ class Process():
         """
         g = self.network()
         if n not in g:
-            raise Exception('No node {n} in network'.format(n=n))
+            raise Exception("No node {n} in network".format(n=n))
         if m not in g:
-            raise Exception('No node {n} in network'.format(n=m))
+            raise Exception("No node {n} in network".format(n=m))
         g.add_edge(n, m, **kwds)
-
 
     def addEdgesFrom(self, es: Iterable[Edge], **kwds):
         """Add all the edges in the given iterable to the working network. Any
@@ -550,14 +524,12 @@ class Process():
             (n, m) = e
             self.addEdge(n, m, **kwds)
 
-
     def removeEdge(self, n: Node, m: Node):
         """Remove an edge from the working network.
 
         :param n: the start node
         :param m: the end node"""
         self.network().remove_edge(n, m)
-
 
     def removeEdgesFrom(self, es: Iterable[Edge]):
         """Remove all the edges in the given iterable collection from the
@@ -570,10 +542,9 @@ class Process():
         for e in es:
             self.removeEdge(*e)
 
-
     # ---------- Probabilistic events ----------
 
-    def addLocus(self, n: str, l: 'Locus' = None) -> 'Locus':
+    def addLocus(self, n: str, l: "Locus" = None) -> "Locus":
         """Add a named locus.
 
         :param n: the locus name
@@ -581,30 +552,32 @@ class Process():
         :returns: the locus"""
         return self._dynamics.addLocus(self, self.decoratedName(n), l)
 
+    def loci(self) -> Dict[str, "Locus"]:
+        """Return the names of the loci that this process added.
 
-    def loci(self) -> Dict[str, 'Locus']:
-        '''Return the names of the loci that this process added.
-
-        :returns: a dict from names to loci'''
+        :returns: a dict from names to loci"""
         return self._dynamics.lociForProcess(self)
 
-
-    def locus(self, n: str) -> 'Locus':
-        '''Return the named locus.
+    def locus(self, n: str) -> "Locus":
+        """Return the named locus.
 
         :param n: the locus name
-        :returns: the locus'''
+        :returns: the locus"""
         return self.loci()[self.decoratedName(n)]
-    
-    def setLoci(self, loci: Dict[str, 'Locus']):
-        '''Set the loci for this process.
 
-        :param loci: the loci'''
+    def setLoci(self, loci: Dict[str, "Locus"]):
+        """Set the loci for this process.
+
+        :param loci: the loci"""
         self._dynamics.setLociForProcess(self, loci)
 
-
-    def addEventPerElement(self, l: Union[str, 'Locus'], pr: float,
-                           ef: EventFunction, name: Optional[str] = None):
+    def addEventPerElement(
+        self,
+        l: Union[str, "Locus"],
+        pr: float,
+        ef: EventFunction,
+        name: Optional[str] = None,
+    ):
         """Add a probabilistic event at a locus, occurring with a particular
         (fixed) probability for each element of the locus, and calling
         the :term:`event function` when it is selected.
@@ -622,7 +595,6 @@ class Process():
             l = self.locus(l)
         self._perElementEvents.append((l, pr, ef, name))
 
-
     def perElementEventDistribution(self, t: float) -> EventDistribution:
         """Return the distribution of per-element events at the given time.
         By default the distribution is time-independent.
@@ -633,7 +605,6 @@ class Process():
         :param t: the simulation time
         :returns: a list of (locus, probability, event function) triples"""
         return self._perElementEvents
-
 
     def perElementEventRateDistribution(self, t: float) -> EventDistribution:
         """Return the rates of per-element events at the given time.
@@ -646,11 +617,18 @@ class Process():
 
         :param t: the simulation time
         :returns: a list of (locus, rate, event function) triples"""
-        return [(l, pr * len(l), ef, name) for (l, pr, ef, name) in self.perElementEventDistribution(t)]
+        return [
+            (l, pr * len(l), ef, name)
+            for (l, pr, ef, name) in self.perElementEventDistribution(t)
+        ]
 
-
-    def addFixedRateEvent(self, l: Union[str, 'Locus'], pr: float,
-                          ef: EventFunction, name: Optional[str] = None):
+    def addFixedRateEvent(
+        self,
+        l: Union[str, "Locus"],
+        pr: float,
+        ef: EventFunction,
+        name: Optional[str] = None,
+    ):
         """Add a probabilistic event at a locus, occurring with a particular
         (fixed) probability, and calling the :term:`event function`
         when it is selected. The locus may be a :class:`Locus` object
@@ -672,7 +650,6 @@ class Process():
             l = self.locus(l)
         self._perLocusEvents.append((l, pr, ef, name))
 
-
     def fixedRateEventDistribution(self, t: float) -> EventDistribution:
         """Return the distribution of fixed-rate events at the given time.
         By default the distribution is time-independent.
@@ -681,12 +658,12 @@ class Process():
         :returns: a list of (locus, probability, event function) triples"""
         return self._perLocusEvents
 
-
     # ---------- Posted events ----------
     # These are helper methods that delegate to the dynamics
 
-    def postEvent(self, t: float, e: Any,
-                  ef: EventFunction, name: Optional[str] = None) -> int:
+    def postEvent(
+        self, t: float, e: Any, ef: EventFunction, name: Optional[str] = None
+    ) -> int:
         """Post an event that calls the :term:`event function` at time t.
         This is a helper method that calls :meth:`Dynamics.postEvent`
         on the dynamics running the process.
@@ -698,7 +675,6 @@ class Process():
 
         """
         return self._dynamics.postEvent(t, self, e, ef, name)
-
 
     def unpostEvent(self, id: int, fatal: bool = True) -> Optional[float]:
         """Un-post the given event.
@@ -717,21 +693,20 @@ class Process():
         """
         return self._dynamics.unpostEvent(id, fatal)
 
-
     def pendingEventTime(self, id: int) -> float:
-        '''Return the time for which the given event is posted. This is
+        """Return the time for which the given event is posted. This is
         a helper event trhat calls :meth:`Dynamics.pendingEventTime`. A KeyError
         will be raised if the event is not queued, which typically means it's been fired already
         (*i.e.*, its posting time lies in the past relative to the current
         simulation time).
 
         :parfam, id: the event
-        :returns: the event's posted simulation time'''
+        :returns: the event's posted simulation time"""
         return self._dynamics.pendingEventTime(id)
 
-
-    def postRepeatingEvent(self, t: float, dt: float, e: Any,
-                           ef: EventFunction, name: Optional[str] = None):
+    def postRepeatingEvent(
+        self, t: float, dt: float, e: Any, ef: EventFunction, name: Optional[str] = None
+    ):
         """Post an event that starts at time t and re-occurs at interval dt.
         This is a help[er methoid that calls :meth:`Dynamics.postRepeatingEvent`
         on the dynamics running the process.
@@ -745,14 +720,21 @@ class Process():
         """
         self._dynamics.postRepeatingEvent(t, dt, self, e, ef, name)
 
-    def postConditionalEvent(self, t: float, e: Any, ef: EventFunction, condition: Condition, name: Optional[str] = None):
+    def postConditionalEvent(
+        self,
+        t: float,
+        e: Any,
+        ef: EventFunction,
+        condition: Condition,
+        name: Optional[str] = None,
+    ):
         self._dynamics.postConditionalEvent(t, self, e, ef, condition, name)
 
     @staticmethod
     def decorateWith(k: str, n: str):
-        '''Decorate a name with the given instance name.
+        """Decorate a name with the given instance name.
 
         :param k: the name
         :param n: the instance name
-        :returns: the decorated name'''
+        :returns: the decorated name"""
         return k + "@" + n

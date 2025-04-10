@@ -60,6 +60,7 @@ from .drawset import DrawSet
 from .process import Process, EventFunction, EventDistribution
 from .loci import Locus
 from .interaction_matrix import InteractionMatrix
+from .interactions import Interaction
 
 # network generators
 from .generator import NetworkGenerator

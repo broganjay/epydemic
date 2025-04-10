@@ -20,10 +20,11 @@
 from typing import Union, Tuple, Any, List, Literal
 
 # the parts of a network (graph)
-Node = Any                   #: A node in a network, which may be any object.
-Edge = Tuple[Node, Node]     #: An edge in a network, connecting exactly two nodes (which may be the same).
+Node = Any  #: A node in a network, which may be any object.
+Edge = Tuple[
+    Node, Node
+]  #: An edge in a network, connecting exactly two nodes (which may be the same).
 Element = Union[Node, Edge]  #: An element in a simulation, either a node or an edge.
-InteractionType = Union[str, List[Tuple[str, str]]] #: A type of interaction between processes e.g cross-immunity
-Configuration = Tuple[str, List[str], List[str], List[str], InteractionType] #: A concise way to represent a process with enough information for reconfiguration events
-#: Format is (pname, susceptible-cs, infectious-cs, removed-cs, interaction)
-Condition = Tuple[str, str] #: A condition on a process, represented as a pair of condition type and target instance
+Condition = Tuple[
+    str, str
+]  #: A condition on a process, represented as a pair of condition type and target instance
