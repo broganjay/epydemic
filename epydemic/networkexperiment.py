@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
-from typing import Union, Dict, Any, List, cast
+from typing import Union, Dict, Any, List, cast, Optional
 from networkx import Graph
 from epyc import Experiment
 from epydemic import NetworkGenerator, FixedNetwork, Process, Element
@@ -39,14 +39,14 @@ class NetworkExperiment(Experiment):
     :param g: (optional) prototype network or network generator
 
     '''
-    def __init__(self, g: Union[Graph, NetworkGenerator] = None):
+    def __init__(self, g: Optional[Union[Graph, NetworkGenerator]] = None):
         super().__init__()
 
         # turn a literal network into a network generator
         if isinstance(g, Graph):
             g = FixedNetwork(g)
         self._generator: NetworkGenerator = cast(NetworkGenerator, g) # network generator
-        self._graph: Graph = None                                     # working network instance
+        self._graph: Optional[Graph] = None                                     # working network instance
 
         # initialise the event tap sub-system
         self.initialiseEventTaps()
@@ -54,7 +54,7 @@ class NetworkExperiment(Experiment):
 
     # ---------- Configuration ----------
 
-    def network(self) -> Graph:
+    def network(self) -> Optional[Graph]:
         '''Return the network this dynamics is running over. This will return
         None unless we're actually running a simulation.
 
@@ -79,7 +79,7 @@ class NetworkExperiment(Experiment):
             g = FixedNetwork(g)
         self._generator = g
 
-    def setNetwork(self, g: Graph):
+    def setNetwork(self, g: Optional[Graph]):
         '''Set the working network. This changes the current working network
         immediately (i.e., within a running experiment): to change how
         initial working networks are obtained, use
@@ -146,7 +146,7 @@ class NetworkExperiment(Experiment):
         :param res: the experimental results'''
         pass
 
-    def eventFired(self, t: float, p: Process, name: str, e: Element):
+    def eventFired(self, t: float, p: Optional[Process], name: str, e: Element):
         '''Respond to the occurrance of the given event. The method is
         passed the simulation time, originating process, event name,
         and the element affected -- and isn't passed the event

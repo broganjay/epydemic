@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import math
-from typing import Dict, Any, Union
+from typing import Dict, Any, Union, Optional
 from networkx import Graph
 from epydemic import Dynamics, rng, Process, NetworkGenerator
 
@@ -35,7 +35,7 @@ class StochasticDynamics(Dynamics):
 
     '''
 
-    def __init__(self, p: Process, g: Union[Graph, NetworkGenerator] = None):
+    def __init__(self, p: Process, g: Optional[Union[Graph, NetworkGenerator]] = None):
         super().__init__(p, g)
 
     def do(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -46,7 +46,7 @@ class StochasticDynamics(Dynamics):
         self.simulationStarted(params)
 
         proc = self.process()
-        t = 0
+        t = 0.0
         events = 0
         while not proc.atEquilibrium(t):
             # pull the transition dynamics at this timestep
@@ -85,7 +85,7 @@ class StochasticDynamics(Dynamics):
 
                     # find the largest event for which the cumulative rates
                     # are less than the random threshold
-                    xs = 0
+                    xs = 0.0
                     for v in range(len(transitions)):
                         (l, xsp, ef, name) = transitions[v]
                         if (xs + xsp) > xc:

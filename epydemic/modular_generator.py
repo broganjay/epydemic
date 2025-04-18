@@ -106,7 +106,7 @@ class ModularNetwork(NetworkGenerator):
         g_centre = fast_gnp_random_graph(N_centre, phi_centre)
         g_centre = g_centre.subgraph(max(connected_components(g_centre), key=len)).copy()
         g_centre = convert_node_labels_to_integers(g_centre, first_label=0)
-        set_node_attributes(g_centre, name=self.ORIGIN, values=0)   # centre has origin == 0
+        set_node_attributes(g_centre, name=self.ORIGIN, values={n: 0 for n in g_centre.nodes}) # centre has origin == 0
         g = g_centre.copy()
 
         # generate the satellite networks
@@ -120,13 +120,13 @@ class ModularNetwork(NetworkGenerator):
             g_sat = g_sat.subgraph(max(connected_components(g_sat), key=len)).copy()
             g_sat = convert_node_labels_to_integers(g_sat, first_label=l)
             l += N_sat
-            set_node_attributes(g_sat, name=self.ORIGIN, values=i + 1)  # satellites have origin > 0
+            set_node_attributes(g_sat, name=self.ORIGIN, values={n: i + 1 for n in g_sat.nodes})  # satellites have origin > 0
             g = compose(g, g_sat)
             g_sats.append(g_sat)
 
         # join the satellites to the centre with a single link
         # between random nodes
-        set_node_attributes(g, name=self.CORE_LINK, values=False)
+        set_node_attributes(g, name=self.CORE_LINK, values={n: False for n in g.nodes})
         ns_centre = list(g_centre.nodes())
         for i in range(satellites):
             # choose a random node in the centre

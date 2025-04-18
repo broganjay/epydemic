@@ -1,6 +1,6 @@
 # Deterministic dynamics base class
 #
-# Copyright (C) 2017--2022 Brogan Irwin
+# Copyright (C) 2025 Brogan Irwin
 #
 # This file is part of epydemic, epidemic network simulations in Python.
 #
@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import math
-from typing import Dict, Any, Union
+from typing import Dict, Any, Optional, Union, cast
 from networkx import Graph
 from epydemic import Dynamics, rng, Process, NetworkGenerator
 
@@ -34,7 +34,7 @@ class DeterministicDynamics(Dynamics):
 
     '''
 
-    def __init__(self, p: Process, g: Union[Graph, NetworkGenerator] = None):
+    def __init__(self, p: Process, g: Optional[Union[Graph, NetworkGenerator]] = None):
         super().__init__(p, g)
 
     def do(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -45,7 +45,7 @@ class DeterministicDynamics(Dynamics):
         self.simulationStarted(params)
 
         proc = self.process()
-        t = 0
+        t = 0.0
         events = 0
         while not proc.atEquilibrium(t):
             # pull the transition dynamics at this timestep
@@ -97,12 +97,13 @@ class DeterministicDynamics(Dynamics):
 
                     # perform the event by calling the event function,
                     # passing the event time and element
-                    pEventFiring = self.getEventSuccessProbability(t, e, ef, name, l.process().instanceName())
+                    associatedProcess = cast(Process, l.process()) # know there is some associated process
+                    pEventFiring = self.getEventSuccessProbability(t, e, ef, name, associatedProcess.instanceName())
                     k = rng.random()
                     if k <= pEventFiring:
                         # bi: should still increment event counter?
                         ef(t, e)
-                        self.eventFired(t, l.process(), name, e)
+                        self.eventFired(t, associatedProcess, name, e)
                         # increment the event counter
                         events += 1
 

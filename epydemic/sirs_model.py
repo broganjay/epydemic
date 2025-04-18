@@ -19,7 +19,7 @@
 
 from epydemic import SIR
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 if sys.version_info >= (3, 8):
     from typing import Final
 else:
@@ -41,7 +41,7 @@ class SIRS(SIR):
     # Event name
     RESUSCEPT: Final[str] = 'epydemic.sirs.RS'              #: Compartment/event name for returning to susceptible.
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
 

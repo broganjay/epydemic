@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 from epydemic import Element, TreeNode
-from typing import Iterator
+from typing import Iterator, Optional, cast
 
 
 class DrawSet():
@@ -34,8 +34,8 @@ class DrawSet():
     :param excluding: (optional) elements to exclude from the initialisation
     '''
 
-    def __init__(self, including: Iterator[Element] = None, excluding: Iterator[Element] = None):
-        self._root = None
+    def __init__(self, including: Optional[Iterator[Element]] = None, excluding: Optional[Iterator[Element]] = None):
+        self._root: Optional[TreeNode] = None
 
         # if we have an initial value, add all elements from the iterator
         if including is not None:

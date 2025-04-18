@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
-from typing import Dict, List, Tuple, Any, Callable, Iterable, Union, Optional
+from typing import Dict, List, Tuple, Any, Callable, Iterable, Union, Optional, cast
 from networkx import Graph
 from epydemic import Node, Edge, Element, Condition
 from epyc import ResultsDict
@@ -73,14 +73,14 @@ class Process:
     DEFAULT_MAX_TIME: float = 20000.0  #: Default maximum simulation time.
     UNIQUE_SEQ: int = 0  #: Process unique sequence number.
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__()
 
         # set the default maximum time, which persists across runs of the process
         self._maxTime = self.DEFAULT_MAX_TIME
 
         # set the hierarchy
-        self._containerProcess: "Process" = None
+        self._containerProcess: Optional[Process] = None
 
         # set the identifiers
         self._instanceName = name
@@ -120,7 +120,7 @@ class Process:
         :returns: the run id"""
         return self._runId
 
-    def instanceName(self) -> str:
+    def instanceName(self) -> Optional[str]:
         """Return the instance name of the current process.
 
         :returns: the instance name or None"""
@@ -141,7 +141,7 @@ class Process:
         if self.instanceName() is None:
             return k
         else:
-            return k + "@" + self.instanceName()
+            return k + "@" + str(self.instanceName())
 
     def undecoratedName(self, k: str) -> str:
         """Undecorate a name if it is dcrated with the process' instance name.
@@ -320,18 +320,18 @@ class Process:
         be None for "simple" processes.
 
         :return: the container process or None"""
-        return self._containerProcess
+        return cast(Process, self._containerProcess)
 
     # ---------- Setup and initialisation ----------
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the process ready to be built. This resets all the internal
         process state variables.
 
         """
         self._runId += 1
-        self._perElementEvents = []
-        self._perLocusEvents = []
+        self._perElementEvents: EventDistribution = []
+        self._perLocusEvents: EventDistribution = []
 
     def build(self, params: Dict[str, Any]):
         """Build the process model. This should be overridden by sub-classes,
@@ -383,7 +383,7 @@ class Process:
         :returns: the network
 
         """
-        return self._dynamics.network()
+        return cast(Graph, self._dynamics.network())
 
     def setDynamics(self, d: "Dynamics"):
         """Set the instance of :class:`Dynamics` that runs the process.
@@ -544,7 +544,7 @@ class Process:
 
     # ---------- Probabilistic events ----------
 
-    def addLocus(self, n: str, l: "Locus" = None) -> "Locus":
+    def addLocus(self, n: str, l: Optional["Locus"] = None) -> "Locus":
         """Add a named locus.
 
         :param n: the locus name
@@ -593,6 +593,8 @@ class Process:
         """
         if isinstance(l, str):
             l = self.locus(l)
+        if name is None:
+            name = ""
         self._perElementEvents.append((l, pr, ef, name))
 
     def perElementEventDistribution(self, t: float) -> EventDistribution:
@@ -648,6 +650,8 @@ class Process:
         """
         if isinstance(l, str):
             l = self.locus(l)
+        if name is None:
+            name = ""
         self._perLocusEvents.append((l, pr, ef, name))
 
     def fixedRateEventDistribution(self, t: float) -> EventDistribution:
@@ -728,7 +732,24 @@ class Process:
         condition: Condition,
         name: Optional[str] = None,
     ):
+        """Post an event that fires only when the condition is satisfied.
+        This is a helper method that calls :meth:`Dynamics.postConditionalEvent`
+        on the dynamics running the process.
+        :param t: the current simulation time
+        :param e: the element (node or edge) on which the event occurs
+        :param ef: the event function
+        :param condition: the condition
+        :param name: (optional) meaningful name of the event
+        """
         self._dynamics.postConditionalEvent(t, self, e, ef, condition, name)
+    
+    def setInstanceName(self, name: str):
+        """Set the instance name of the process. This
+        can be used to impose a name upon a process, and 
+        can be used to deanonymise processess.
+        
+        :param name: the instance name"""
+        self._instanceName = name
 
     @staticmethod
     def decorateWith(k: str, n: str):

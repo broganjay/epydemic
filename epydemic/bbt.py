@@ -1,4 +1,4 @@
-2# An AVL tree with fair random draw
+# An AVL tree with fair random draw
 #
 # Copyright (C) 2021 Simon Dobson
 #
@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
-from typing import Tuple, Iterator, Optional
+from typing import Tuple, Iterator, Optional, cast
 from epydemic import Element, rng
 
 
@@ -113,7 +113,7 @@ class TreeNode():
         else:
             return self._parent._findUnbalanced()
 
-    def _tallerSubtree(self) -> 'TreeNode':
+    def _tallerSubtree(self) -> Optional['TreeNode']:
         '''Return the taller of the node's sub-trees.
 
         :returns: the smaller sub-tree'''
@@ -143,7 +143,9 @@ class TreeNode():
         else:
             # tree is unbalanced, rotate and find the (local) root
             root = z._rotate()
-
+            if root is None:
+                # tree is unchanged
+                return None
             if root._parent is None:
                 # we have a new global root
                 return root
@@ -168,7 +170,15 @@ class TreeNode():
 
         # find the two other nodes for the rotation
         y = z._tallerSubtree()
+        if y is None:
+            # tree is empty
+            return None
+        
         x = y._tallerSubtree()
+
+        if x is None:
+            # tree is empty
+            return None
 
         # grab the parent to which we'll re-attach the new root
         # after rotation
@@ -264,7 +274,7 @@ class TreeNode():
         # return the new root of the rotated tree
         return root
 
-    def find(self, e: Element) -> 'TreeNode':
+    def find(self, e: Element) -> Optional['TreeNode']:
         '''Search for an element in the tree, returning its node..
 
         :param e: the element
@@ -288,7 +298,7 @@ class TreeNode():
         :returns: an iterator'''
         return self._inOrder()
 
-    def _inOrder(self) -> Element:
+    def _inOrder(self) -> Iterator[Element]:
         '''Generator to return the elements of the tree
         in order using an in-order traverse.
 
@@ -299,7 +309,7 @@ class TreeNode():
         if self._right is not None:
             yield from self._right._inOrder()
 
-    def _leftmost(self) -> 'TreeNode':
+    def _leftmost(self) -> Optional['TreeNode']:
         '''Return the leftmost node in a tree. This by definition
         holds the smallest element.
 
@@ -309,7 +319,7 @@ class TreeNode():
         else:
             return self._left._leftmost()
 
-    def _rightmost(self) -> 'TreeNode':
+    def _rightmost(self) -> Optional['TreeNode']:
         '''Return the rightmost node in a tree. This by defintion holds
         the largest element.
 
@@ -319,7 +329,7 @@ class TreeNode():
         else:
             return self._right._rightmost()
 
-    def discard(self, e) -> Tuple[bool, bool, 'TreeNode']:
+    def discard(self, e) -> Tuple[bool, bool, Optional['TreeNode']]:
         '''Delete the given element from the tree, if it is present.
 
         This method performs three integrated tasks. If the element
@@ -376,6 +386,7 @@ class TreeNode():
                     self._left._parent = None
                     return (True, False, self._left)
                 else:
+                    parent = cast(TreeNode, parent)
                     # replace us with our sub-tree
                     if parent._left == self:
                         parent._left = self._left
@@ -395,6 +406,7 @@ class TreeNode():
                 else:
                     r = self._right._leftmost()
                     #print('replace with ' + str(r._data))
+                r = cast(TreeNode, r) # valid as at least 1 element in subtrees
                 self._data = r._data
                 return r.discard(r._data)
 
@@ -429,8 +441,10 @@ class TreeNode():
         else:
             i = rng.integers(l)
             if i < self._leftSize:
+                self._left = cast(TreeNode, self._left) # valid as at least 1 element in subtrees
                 return self._left.draw()
             elif i == self._leftSize:
                 return self._data
             else:
+                self._right = cast(TreeNode, self._right)
                 return self._right.draw()

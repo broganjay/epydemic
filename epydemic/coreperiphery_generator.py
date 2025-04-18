@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Set
 if sys.version_info >= (3, 8):
     from typing import Final
 else:
@@ -126,7 +126,9 @@ class CorePeripheryNetwork(NetworkGenerator):
                     g.add_edge(n, m)             # edges added to composed network
 
         # restrict to the LCC
-        lcc = g.subgraph(max(connected_components(g), key=len)).copy()
+        components: list[Set[Any]] = list(connected_components(g))
+        largest = max(components, key=len)
+        lcc = g.subgraph(largest).copy()
         lcc = convert_node_labels_to_integers(lcc, first_label=0)
 
         return lcc

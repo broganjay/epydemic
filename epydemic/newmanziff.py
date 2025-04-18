@@ -36,7 +36,7 @@ class NewmanZiff(NetworkExperiment):
     :param g: (optional) the underlying network or generator
     :param samples: (optional) number of samples or list of sample points (defaults to 100)'''
 
-    def __init__(self, g: Graph = None, samples: Union[int, Iterable[float]] = None):
+    def __init__(self, g: Optional[Graph] = None, samples: Optional[Union[int, Iterable[float]]] = None):
         super().__init__(g)
 
         # fill in default
@@ -45,10 +45,10 @@ class NewmanZiff(NetworkExperiment):
         if isinstance(samples, int):
             samples = numpy.linspace(0.0, 1.0, num=samples, endpoint=True)
         self._samplepoints: List[float] = sorted(numpy.unique(list(cast(Iterable[float], samples))))
-        self._samples: List[Dict[str, Any]] = None
+        self._samples: Optional[List[Dict[str, Any]]] = None
 
         # components data structure is initially empty
-        self._components: numpy.ndarray = None
+        self._components: Optional[numpy.ndarray] = None
 
     def setUp(self, params: Dict[str, Any]):
         '''Set up the process.
@@ -66,12 +66,15 @@ class NewmanZiff(NetworkExperiment):
         self._components = None
         super().tearDown()
 
-    def rootOf(self, n: Node) -> Node:
+    def rootOf(self, n: Node, *args, **kwargs) -> Optional[Node]:
         '''Return the root of the component containing node n, updating
         the tree accordingly.
 
         :param n: the node in the component
         :returns: the root of the component'''
+
+        self._components = cast(numpy.ndarray, self._components)
+        
         np = self._components[n]
         if np < 0:
             # n is the root, return it
@@ -97,6 +100,8 @@ class NewmanZiff(NetworkExperiment):
 
         # extract the size of the second componoent
         # sd: this will be a negative number, since that's how sizes are stored
+        self._components = cast(numpy.ndarray, self._components)
+
         msize = self._components[c2]
 
         # join the second component to the first
@@ -111,7 +116,8 @@ class NewmanZiff(NetworkExperiment):
 
         # return the size of the new component
         # sd: minus the new encoded size at the root
-        return -self._components[c1]
+
+        return -int(self._components[c1])
 
 
     # ---------- Querying the structure ----------
@@ -129,7 +135,10 @@ class NewmanZiff(NetworkExperiment):
         :returns: the size of the component of which this node is part
         '''
         r = self.rootOf(n)
-        return -self._components[r]
+
+        self._components = cast(numpy.ndarray, self._components)
+
+        return -int(self._components[r])
 
     def largestComponentSize(self) -> int:
         '''Return the size of the largest component.
@@ -152,7 +161,7 @@ class NewmanZiff(NetworkExperiment):
 
     # ---------- Sampling ----------
 
-    def sample(self, p: float) -> Dict[str, Any]:
+    def sample(self, p: float, *args, **kwargs) -> Dict[str, Any]:
         '''Take a sample. The default does nothing, and it overridden by
         sub-classes.
 
@@ -164,8 +173,8 @@ class NewmanZiff(NetworkExperiment):
         '''Package-up the samples taken into a dict of time series.
 
         :returns: the experimental results'''
-        res = dict()
-        if len(self._samples) > 0:
+        res: Dict[str, Any] = dict()
+        if not self._samples is None and len(self._samples) > 0:
             for s in self._samples:
                 for k in s.keys():
                     if k not in res.keys():
@@ -204,7 +213,7 @@ class BondPercolation(NewmanZiff):
     P: Final[str] = 'epydemic.bondpercolation.pOccupied'     #: Result holding series of percolation values.
     GCC: Final[str] = 'epydemic.bondpercolation.gcc'         #: Result holding sizes of largest component.
 
-    def __init__(self, g: Graph = None, samples: Union[int, Iterable[float]] = None):
+    def __init__(self, g: Optional[Graph] = None, samples: Optional[Union[int, Iterable[float]]] = None):
         super().__init__(g, samples)
 
     def setUp(self, params: Dict[str, Any]):
@@ -213,8 +222,8 @@ class BondPercolation(NewmanZiff):
 
         :param params: the experimental parameters'''
         super().setUp(params)
-
-        N = self.network().order()
+        
+        N = cast(Graph, self.network()).order()
         self._components = numpy.full(N, -1, numpy.int32)
         self._gcc = 1           # all nodes are individual components, unconnected by occupied edges
         self._ncomponents = N
@@ -235,7 +244,7 @@ class BondPercolation(NewmanZiff):
         '''
 
         # add the newly-occupied edge into the working network
-        self.network().add_edge(n, m)
+        cast(Graph, self.network()).add_edge(n, m)
 
         # update the component tree
         nr = self.rootOf(n)
@@ -253,7 +262,7 @@ class BondPercolation(NewmanZiff):
             # no new component was formed
             return None
 
-    def sample(self, p: float) -> Dict[str, Any]:
+    def sample(self, p: float, *args, **kwargs) -> Dict[str, Any]:
         '''Take a sample. The default samples the size of the GCC.
 
         :param p: the current occupation probability
@@ -272,6 +281,9 @@ class BondPercolation(NewmanZiff):
         requested point, however, so that all results are sampled with the same indices.
 
         :param es: the permuted list of edges'''
+
+        if self._samples is None:
+            return # not set up
 
         # take an initial sample if requested
         samplePoint = 0
@@ -310,12 +322,14 @@ class BondPercolation(NewmanZiff):
 
         # extract and shuffle the edges
         g = self.network()
+        g = cast(Graph, g)
         es = list(g.edges()).copy()
         numpy.random.shuffle(es)
 
         # remove all edges from the working network, so they can
         # be added back as we percolate
         g = self.network()
+        g = cast(Graph, g)
         g.remove_edges_from(g.edges)
 
         # percolate the network using these edges
@@ -356,9 +370,9 @@ class SitePercolation(NewmanZiff):
     P: Final[str] = 'epydemic.sitepercolation.pOccupied'    #: Result holding sequence of percolation values.
     GCC: Final[str] = 'epydemic.sitepercolation.gcc'        #: Result holding sizes of largest component.
 
-    def __init__(self, g: Graph = None, samples: Union[int, Iterable[float]] = None):
+    def __init__(self, g: Optional[Graph] = None, samples: Optional[Union[int, Iterable[float]]] = None):
         super().__init__(g, samples)
-        self._originalWorkingNetwork : Graph = None
+        self._originalWorkingNetwork: Optional[Graph] = None
 
     def setUp(self, params: Dict[str, Any]):
         '''Set up the process, creating the initial components data structure from the
@@ -366,7 +380,7 @@ class SitePercolation(NewmanZiff):
 
         :param params: the experimental parameters'''
         super().setUp(params)
-        N = self.network().order()
+        N = cast(Graph, self.network()).order()
         self._unoccupied = N + 1                   # a root that can never occur
         self._components = numpy.full(N, self._unoccupied, numpy.int32)
         self._gcc = 0          # initially there are no components
@@ -374,7 +388,7 @@ class SitePercolation(NewmanZiff):
 
         # store a copy of the original working network,
         # that we can use when adding edges bac
-        self._originalWorkingNetwork = self.network().copy()
+        self._originalWorkingNetwork = cast(Graph, self.network()).copy()
 
     def componentSize(self, n: Node) -> int:
         '''Return the size of the component containing the node. This will
@@ -383,7 +397,7 @@ class SitePercolation(NewmanZiff):
         :param n: the node
         :returns: the size of the component of which this node is part
         '''
-        if self._components[n] == self._unoccupied:
+        if cast(numpy.ndarray, self._components)[n] == self._unoccupied:
             return 0
         else:
             return super().componentSize(n)
@@ -411,7 +425,11 @@ class SitePercolation(NewmanZiff):
         :param nr: the node
         :returns: the size of any newly-combined component'''
         g = self.network()
-        og = self._originalWorkingNetwork
+
+        if g is None:
+            raise ValueError('No network to percolate')
+        
+        og = cast(Graph, self._originalWorkingNetwork)
 
         # add the node back
         g.add_node(nr)
@@ -426,6 +444,7 @@ class SitePercolation(NewmanZiff):
                 g.add_edge(nr, m)
 
         # mark the node as a singleton component
+        self._components = cast(numpy.ndarray, self._components)
         self._components[nr] = -1
         self._ncomponents += 1
         csize = 1
@@ -466,6 +485,7 @@ class SitePercolation(NewmanZiff):
         :param en: the permuted list of nodes'''
 
         # take an initial sample if requested
+        self._samples = cast(List[Dict[str, Any]], self._samples)
         samplePoint = 0
         if self._samplepoints[samplePoint] == 0.0:
             self._samples.append(self.sample(self._samplepoints[samplePoint]))
@@ -502,6 +522,10 @@ class SitePercolation(NewmanZiff):
 
         # extract and shuffle the nodes
         g = self.network()
+
+        if g is None:
+            raise ValueError('No network to percolate')
+        
         ns = list(g.nodes()).copy()
         numpy.random.shuffle(ns)
 

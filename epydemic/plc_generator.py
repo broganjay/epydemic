@@ -53,7 +53,7 @@ class PLCNetwork(NetworkGenerator):
     EXPONENT: Final[str] = 'exponent'   #: Experimental parameter for the exponent of the distribution.
     CUTOFF: Final[str] = 'cutoff'       #: Experimental parameter for the cutoff of the distribution.
 
-    def __init__(self, params: Dict[str, Any] = None, limit: Optional[int] = None):
+    def __init__(self, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None):
         super().__init__(params, limit)
 
     def topology(self) -> str:
@@ -71,7 +71,7 @@ class PLCNetwork(NetworkGenerator):
         C = polylog(alpha, exp(-1.0 / kappa))
 
         def p(k: int) -> float:
-            return (pow((k + 0.0), -alpha) * exp(-(k + 0.0) / kappa)) / C
+            return float((pow((k + 0.0), -alpha) * exp(-(k + 0.0) / kappa)) / C)
 
         return p
 
@@ -135,4 +135,4 @@ class PLCNetwork(NetworkGenerator):
         N = params[self.N]
         alpha = params[self.EXPONENT]
         kappa = params[self.CUTOFF]
-        return self._generateFrom(N, self._makePowerlawWithCutoff(alpha, kappa))
+        return Graph(self._generateFrom(N, self._makePowerlawWithCutoff(alpha, kappa)))

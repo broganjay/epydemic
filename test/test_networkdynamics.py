@@ -196,6 +196,8 @@ class NetworkDynamicsTest(unittest.TestCase):
         id100 = p.postEvent(3, None, make_ef(100))
         id200 = p.postEvent(4, None, make_ef(200))
 
+        print(id1, id20, id100, id200)
+
         # un-post one of the events
         dyn.unpostEvent(id20)
 
@@ -213,7 +215,7 @@ class NetworkDynamicsTest(unittest.TestCase):
         dyn = Dynamics(p)
 
         # event function builder, will increment the shared
-        # value when fired
+        # value when firedn
         self._v = 0
         def make_ef( w ):
             def ef( t, e ):

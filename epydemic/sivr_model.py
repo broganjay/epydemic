@@ -24,7 +24,7 @@ if sys.version_info >= (3, 8):
     from typing import Final
 else:
     from typing_extensions import Final
-from epydemic import SIR, rng, Node, Edge
+from epydemic import SIR, rng, Node, Edge, CompartmentedModel
 
 
 class SIvR(SIR):
@@ -66,7 +66,7 @@ class SIvR(SIR):
 
     # ---------- Managing vaccination data ----------
 
-    def vaccinateNode(self, t: float, n: Node):
+    def vaccinateNode(self: "CompartmentedModel", t: float, n: Node):
         '''Vaccinate an individual. This updates the process to
         include the vaccination of the given individual (node).
 
@@ -87,7 +87,7 @@ class SIvR(SIR):
 
         :param n: the node
         :returns: True if the node has been vaccinated'''
-        return self.network().nodes[n].get(SIvR.VACCINATED, False)
+        return bool(self.network().nodes[n].get(SIvR.VACCINATED, False))
 
 
     def nodeVaccinatedAt(self, n: Node) -> float:
@@ -96,7 +96,7 @@ class SIvR(SIR):
 
         :param n: the node
         :returns: the vaccination time or -1'''
-        return self.network().nodes[n].get(SIvR.VACCINATION_TIME, -1)
+        return float(self.network().nodes[n].get(SIvR.VACCINATION_TIME, -1))
 
 
     # ---------- Building the model ----------
@@ -111,7 +111,7 @@ class SIvR(SIR):
         super().build(params)
 
         # stash the efficacy
-        efficacy = self.getParameters(params, [self.EFFICACY])
+        [efficacy] = self.getParameters(params, [self.EFFICACY])
         self._efficacy = efficacy
 
         # default to no time offset

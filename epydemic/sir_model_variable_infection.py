@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 from copy import copy
-from typing import Dict, Any, Iterator
+from typing import Dict, Any, Iterator, Optional
 from epydemic import Process, CompartmentedModel, SIR, rng, Element, EventDistribution
 
 
@@ -69,10 +69,10 @@ class SIR_VariableInfection(SIR):
     :param: name (optional) instance name'''
 
     # Edge attribute for infectivity
-    INFECTIVITY: str = None   #: State variable holding an edge's infectivity.
+    INFECTIVITY: Optional[str] = None   #: State variable holding an edge's infectivity.
 
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
         # state variables
@@ -134,7 +134,9 @@ class SIR_VariableInfection(SIR):
 
         # add the infectivities on SI edges
         g = self.network()
+        if self.INFECTIVITY is None:
+            return [] # for type checking
         for e in self.locus(self.SI):
-            pr = g.edges[e][self.INFECTIVITY]
+            pr = float(g.edges[e][self.INFECTIVITY])
             dist.extend([(SingletonLocus(self, e), pr, self.infect, self.INFECTED)])
         return dist

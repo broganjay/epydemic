@@ -73,7 +73,7 @@ class ResidualBondPercolation(NewmanZiff):
         return '{stem}-{l}'.format(stem=cls.P_RESIDUAL_STEM, l=depth)
 
 
-    def __init__(self, g: Graph = None, samples: Union[int, Iterable[float]] = None, residuals: int = 1):
+    def __init__(self, g: Optional[Graph] = None, samples: Optional[Union[int, Iterable[float]]] = None, residuals: int = 1):
         super().__init__(g, samples)
         self._residuals = residuals
 
@@ -81,11 +81,11 @@ class ResidualBondPercolation(NewmanZiff):
         super().setUp(params)
         self._networkIndex = 0
         self._parent = 0
-        self._phis = dict()
+        self._phis: dict[str, float] = dict()
         self._gcc = 1   # initially all nodes are individual components, unconnected by occupied edges
 
         # all nodes are singleton components in the primary network
-        N = self.network().order()
+        N = cast(Graph, self.network()).order()
         self._components = numpy.full(N, -1, numpy.int32)
         self._networks = numpy.full(N, 1, numpy.int16)
 
@@ -168,7 +168,7 @@ class ResidualBondPercolation(NewmanZiff):
         self._gcc = max(self._gcc, csize)
 
         # return the size of the new component
-        return csize
+        return int(csize)
 
     def sample(self, p: float, es: Iterable[Edge], nexti: int, N: int, M: int, depth: int, network: int):
         samples = []
@@ -185,7 +185,7 @@ class ResidualBondPercolation(NewmanZiff):
 
         # if we're re-percolating, do that to get more samples
         if depth < self._residuals:
-            es_residual = es[nexti:]
+            es_residual = list(es)[nexti:]
             samples.extend(self.repercolate(p, es_residual, depth, network))
 
         return samples
@@ -204,14 +204,17 @@ class ResidualBondPercolation(NewmanZiff):
         return ss
 
     def percolate(self, es: Iterable[Edge], depth: int):
-        N = self.network().order() - self.orderOfNetwork(self._parent)
-        M = len(es)
+        N = cast(Graph, self.network()).order() - self.orderOfNetwork(self._parent)
+        M = len(list(es))
         self._networkIndex += 1
         network = self._networkIndex
         samples = []
         samplePoint = 0
 
         # take an initial sample if requested
+        if self._samples is None:
+            return 
+        
         if self._samples[samplePoint] == 0.0:
             samples.extend(self.sample(self._samples[samplePoint], es, 0, N, M, depth, network))
             samplePoint += 1
@@ -223,7 +226,7 @@ class ResidualBondPercolation(NewmanZiff):
                 break
 
             # occupy the edge
-            (n, m) = es[i]
+            (n, m) = list(es)[i]
             self.occupy(n, m, network)
 
             # take a sample if this is a sample point
@@ -242,7 +245,7 @@ class ResidualBondPercolation(NewmanZiff):
         :param params: experimental parameters
         :returns: a list of dicts of experimental results'''
         # extract and shuffle the edges
-        g = self.network()
+        g = cast(Graph, self.network())
         es = list(g.edges()).copy()
         numpy.random.shuffle(es)
 

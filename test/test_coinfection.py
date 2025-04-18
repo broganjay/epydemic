@@ -53,16 +53,28 @@ class CoinfectionTest(unittest.TestCase):
 
         # run the processes together
         ps = ProcessSequence([p1, p2])
+
+        # arbitrarily reduce max simulation time, as given enough time both would occupy the whole network anyway  
+        # alternative to avoid would be to impose cross-immune interaction but left for another test
+        ps.setMaximumTime(1)
+
         e = StochasticDynamics(ps, ERNetwork())
         rc = e.set(params).run(fatal=True)
+        g = e.network()
+
+        # bi: checking hit against size of final result inaccurate -- hit records most recent process only
+        # so, the max value of len(hit1) + len(hit2) would be N, 10_000
+        # switch to making use of results dict more ---
+        # assert more removed from second process than first
 
         # we should have more nodes hit by the second infection than by the first
-        g = e.network()
-        hit1 = [n for n in g.nodes if g.nodes[n].get(p1.HITTING_PROCESS_NAME) == p1.instanceName()]
-        hit2 = [n for n in g.nodes if g.nodes[n].get(p2.HITTING_PROCESS_NAME) == p2.instanceName()]
-        self.assertTrue(len(hit2) > len(hit1))
-        self.assertEqual(rc[Experiment.RESULTS][SIR.REMOVED], len(hit1) + len(hit2))
-
+        # so less S nodes in p2 than in p1
+        print(rc[Experiment.RESULTS])
+        self.assertTrue(rc[Experiment.RESULTS][p2.decoratedNameInInstance(p2.SUSCEPTIBLE)] < rc[Experiment.RESULTS][p1.decoratedNameInInstance(p1.SUSCEPTIBLE)])
+        # the total number of removed nodes should be less than 2 * N 
+        self.assertTrue(rc[Experiment.RESULTS][p1.decoratedNameInInstance(p1.REMOVED)] + rc[Experiment.RESULTS][p2.decoratedNameInInstance(p2.REMOVED)] < 2 * N)
+        # while we're here, check the aggregated values are correct too...
+        self.assertTrue(rc[Experiment.RESULTS][p1.decoratedNameInInstance(p1.REMOVED)] + rc[Experiment.RESULTS][p2.decoratedNameInInstance(p2.REMOVED)] == rc[Experiment.RESULTS][SIR.REMOVED])
 
 if __name__ == '__main__':
     unittest.main()

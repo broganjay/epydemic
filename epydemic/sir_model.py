@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 if sys.version_info >= (3, 8):
     from typing import Final
@@ -61,7 +61,7 @@ class SIR(CompartmentedModel):
     SI: Final[str] = "epydemic.sir.SI"  #: Edge able to transmit infection.
     IR: Final[str] = "epydemic.sir.IR"  ###
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
     def build(self, params: Dict[str, Any]):
@@ -82,12 +82,11 @@ class SIR(CompartmentedModel):
             self.SUSCEPTIBLE, self.INFECTED, name=self.SI
         )
         self.trackNodesInCompartment(self.INFECTED)
-        self.trackNodesInCompartment(self.REMOVED)
 
         self.addEventPerElement(self.SI, pInfect, self.infect, name=self.INFECTED)
         self.addEventPerElement(self.INFECTED, pRemove, self.remove, name=self.REMOVED)
 
-    def infect(self, t: float, e: Any):
+    def infect(self, t: float, e: Any | tuple[Any, Any]) -> None:
         """Perform an infection event. This changes the compartment of
         the susceptible-end node to :attr:`INFECTED`. It also records the
         first occupation time for the edge transmiting the infection,
@@ -95,7 +94,7 @@ class SIR(CompartmentedModel):
 
         :param t: the simulation time
         :param e: the edge transmitting the infection, susceptible-infected"""
-        self.compartmentChangeEvent(t, e, self.INFECTED)
+        self.compartmentChangeEvent(t, e, self.INFECTED, mark = True)
 
     def remove(self, t: float, n: Any):
         """Perform a removal event. This changes the compartment of
@@ -103,7 +102,7 @@ class SIR(CompartmentedModel):
 
         :param t: the simulation time (unused)
         :param n: the node"""
-        self.compartmentChangeEvent(t, n, self.REMOVED)
+        self.compartmentChangeEvent(t, n, self.REMOVED, mark = False)
 
     def atEquilibrium(self, t: float) -> bool:
         """Check if the model has reached equilibrium. This is the case
@@ -118,6 +117,12 @@ class SIR(CompartmentedModel):
         ) and (t > 0.0)
 
     def getPossibleCompartmentTransitions(self):
+        """Return all possible compartment transitions for this model, 
+        overriding the base class method. For the SIR model, all posible transitions are
+        S->I and I->R.
+        
+        :return: a list of tuples, each containing a start and end compartment for each possible transition
+        """
 
         return [
             (self.SUSCEPTIBLE, self.INFECTED),
@@ -126,7 +131,15 @@ class SIR(CompartmentedModel):
         ]
 
     def getInfectEventName(self):
-        return "infect"
+        """Return the name of the infection event for this model.
+        Needed if model is set to emerge during the course of a 
+        simulation, to ensure any interactions may be evaluated.
+
+        :return: the name of the infection event"""
+        return self.infect.__name__
 
     def getInfectedCompartments(self):
+        """Return the compartments in this model where the node is considered
+        _currently_ infected. Used in construction of cross-immunity, infection 
+        precondition and other interactions."""
         return [self.INFECTED]

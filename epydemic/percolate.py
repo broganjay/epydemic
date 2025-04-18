@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import sys
-import numpy                             # type: ignore
+import numpy                             
 from typing import Dict, Any, List
 if sys.version_info >= (3, 8):
     from typing import Final

@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 if sys.version_info >= (3, 8):
     from typing import Final
 else:
@@ -56,7 +56,7 @@ class Monitor(Process):
         :returns: the result name'''
         return '{stem}-{locus}'.format(stem=Monitor.TIMESERIES_STEM, locus=l)
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
     def reset(self):

@@ -17,6 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
+from typing import Optional
 from epydemic import Element, DrawSet, Process
 from networkx import Graph
 
@@ -40,7 +41,7 @@ class Locus(DrawSet):
     def __init__(self, name: str):
         super().__init__()
         self._name: str = name
-        self._process: Process = None
+        self._process: Optional[Process] = None
 
     def name(self) -> str:
         '''Returns the name of the locus.
@@ -54,7 +55,7 @@ class Locus(DrawSet):
         :param p: the process'''
         self._process = p
 
-    def process(self) -> Process:
+    def process(self) -> Optional[Process]:
         '''Return the process this locus is associated with.
 
         :returns: the process'''

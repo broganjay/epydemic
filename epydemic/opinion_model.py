@@ -20,7 +20,7 @@
 
 import sys
 from networkx import Graph
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, cast
 if sys.version_info >= (3, 8):
     from typing import Final
 else:
@@ -71,6 +71,7 @@ class MultiCompartmentedEdgeLocus(CompartmentedEdgeLocus):
 
         '''
         p = self.process()
+        p = cast(CompartmentedModel, p) # safe as know locus must have associated process
         cn = p.getCompartment(n)
         cm = p.getCompartment(m)
         if (cn == self._left) and (cm in self._rights):
@@ -98,9 +99,9 @@ class Opinion(CompartmentedModel):
     :param: name (optional) instance name"""
 
     # Experimental parameters
-    P_AFFECTED: Final[float] = 'epydemic.opinion.pAffected'  #: Parameter for probability of initially being affected at start.
-    P_AFFECT: Final[float] = 'epydemic.opinion.pAffect'      #: Parameter for probability of affect on contact.
-    P_STIFLE: Final[float] = 'epydemic.opinion.pStifle'      #: Parameter for probability of becoming stifler on contact.
+    P_AFFECTED: Final[str] = 'epydemic.opinion.pAffected'  #: Parameter for probability of initially being affected at start.
+    P_AFFECT: Final[str] = 'epydemic.opinion.pAffect'      #: Parameter for probability of affect on contact.
+    P_STIFLE: Final[str] = 'epydemic.opinion.pStifle'      #: Parameter for probability of becoming stifler on contact.
 
     # Compartments
     IGNORANT: Final[str] = 'epydemic.opinion.G'              #: Compartment for nodes ignorant of the rumour.
@@ -109,7 +110,7 @@ class Opinion(CompartmentedModel):
     GP: Final[str] = 'epydemic.opinion.GP'                   #: Compartment for edges able to transmit the rumour.
     PPT: Final[str] = 'epydemic.opinion.PPT'                 #: Compartment for edges able to stifle the rumour.
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
     def build(self, params: Dict[str, Any]):

@@ -29,11 +29,13 @@ import sys
 import numpy as np
 
 if sys.version_info >= (3, 8):
-    from typing import Any, Dict, Optional, Final
+    from typing import Any, Dict, Optional, Final, Union
 else:
     # backport compatibility with older typing
     from typing import Any, Dict, Optional
     from typing_extensions import Final
+
+from epydemic import rng
 
 
 class FixedNetwork(NetworkGenerator):
@@ -85,7 +87,7 @@ class ERNetwork(NetworkGenerator):
         "kmean"  #: Experimental parameter for the mean degree of the network.
     )
 
-    def __init__(self, params: Dict[str, Any] = None, limit: Optional[int] = None):
+    def __init__(self, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None):
         super().__init__(params, limit)
 
     def topology(self) -> str:
@@ -113,7 +115,7 @@ class ERNetwork(NetworkGenerator):
 
         # build the network
         g = fast_gnp_random_graph(N, phi)
-        return g
+        return Graph(g)
 
 
 class BANetwork(NetworkGenerator):
@@ -138,7 +140,7 @@ class BANetwork(NetworkGenerator):
         "MperNode"  #: Experimental parameter for the number of edges added per node.
     )
 
-    def __init__(self, params: Dict[str, Any] = None, limit: Optional[int] = None):
+    def __init__(self, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None):
         super().__init__(params, limit)
 
     def topology(self) -> str:
@@ -160,19 +162,31 @@ class BANetwork(NetworkGenerator):
 
         # build the network
         g = barabasi_albert_graph(N, M)
-        return g
+        return Graph(g)
 
 
 class ConfigurationModel(NetworkGenerator):
+    """Generate networks from a given order (:attr:`N`) and distribution of degrees (:attr:`DIST`) of length :attr:`N`.
+    These parameters are taken from the experimental parameters.
+
+    The configuration model is a basic form of random graph. Edges are created between nodes randomly such that each node has degree
+    according to the given degree sequence. 
+
+    The actual construction of configuration model networks uses the `networkx.configuration_model()` function.
+    Any self-loops or multi-edges are removed from the generated network by forceful cast to a standard `networkx.Graph` type.
+
+    :param params: (optional) experiment parameters
+    :param limit: (optional) maximum number of instances to generate"""
+
 
     N: Final[str] = "N"  #: Experimental parameter for the size (order) of the network.
     DIST: Final[str] = "dist"  #: Experimental parameter for the degree distribution.
 
-    def __init__(self, params: Dict[str, Any] = None, limit: Optional[int] = None):
+    def __init__(self, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None):
         super().__init__(params, limit)
 
     def topology(self) -> str:
-        """Return the topoology flag for this generator.
+        """Return the topology flag for this generator.
 
         :returns: the topology marker ("CM")"""
         return "CM"
@@ -188,11 +202,20 @@ class ConfigurationModel(NetworkGenerator):
         if isinstance(dist, str):
             dist = json.loads(dist)
         g = configuration_model(dist)
-        g = Graph(g)
-        return g
+        return Graph(g) # cast to remove self-loops and multi-edges
 
 
 class ClusteredNetwork(NetworkGenerator):
+    """Generate clustered networks from a given order (:attr:`N`), mean single-edge degree (:attr:`TREEMEAN`) 
+    and mean triangle participation (:attr:`TRIMEAN`). These parameters are taken from the experimental parameters.
+
+    The construction of a `ClusteredNetwork` follows the process of the generalised configuration model. Each 
+    vertex in the network is assigned a number of tree stubs and triangle stubs according to the given parameters.
+    Tree stubs are paired to form uncorrelated edges, and three triangle stubs are connected to create triangles.
+    Thus, the resulting network has notable meso-structures of order 3.
+    
+    :param params: (optional) experiment parameters
+    :param limit: (optional) maximum number of instances to generate"""
 
     N: Final[str] = "N"  #: Experimental parameter for the size (order) of the network.
     TREEMEAN: Final[str] = (
@@ -202,54 +225,75 @@ class ClusteredNetwork(NetworkGenerator):
         "triMean"  #: Experimental parameter for the mean triangle participation
     )
 
-    def __init__(self, params: Dict[str, Any] = None, limit: Optional[int] = None):
+    def __init__(self, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None):
         super().__init__(params, limit)
 
     def topology(self) -> str:
-        """Return the topoology flag for this generator.
+        """Return the topology flag for this generator.
 
         :returns: the topology marker ("GCM")"""
         return "GCM"
 
     def _generate(self, params: Dict[str, Any]) -> Graph:
-        g = Graph()
+        """Generate a clustered network from an order (represented by the parameter :attr:`N`),
+        mean single-edge degree (:attr:`TREEMEAN`) and mean triangle participation (:attr:`TRIMEAN`).
+        :param params: experimental parameters
+        :returns: the clustered network"""
+        # extract params
         N = params[self.N]
         treeMean = params[self.TREEMEAN]
         triMean = params[self.TRIMEAN]
+        g: Graph = Graph()
         g.add_nodes_from(range(N))
 
-        kTree = np.random.poisson(treeMean, N)
-        kTri = np.random.poisson(triMean, N)
+        kTree = rng.poisson(treeMean, N) # poisson dist of number of tree stubs per node
+        kTri = rng.poisson(triMean, N) # poisson dist of number of triangle stubs per node
 
-        kTri += kTri % 2
+        totalTri = sum(kTri) # total number of triangle stubs -- must be divisible by 3
+        
+        # choose randomly which triangle stubs to remove for each over a clean multiple of 3
+        indices = rng.choice(len(kTri), totalTri % 3, replace=False)
+        kTri[indices] -= 1 # remove one stub from each
 
         treeStubs = []
         triStubs = []
 
         for i in range(N):
-            treeStubs.extend([i] * kTree[i])
+            # each node is added once per stub 
+            treeStubs.extend([i] * kTree[i]) 
             triStubs.extend([i] * kTri[i])
 
-        np.random.shuffle(treeStubs)
-        if len(treeStubs) % 2 != 0:
-            treeStubs.pop()
-
-        for i in range(0, len(treeStubs), 2):
-            u, v = treeStubs[i], treeStubs[i + 1]
-            if u != v:
-                g.add_edge(u, v)
-
-        np.random.shuffle(triStubs)
+        remainder = len(treeStubs) % 2 # remainder should be 0 -- must be even number of tree stubs for pairing
+        if remainder != 0:
+            # if not even, add another random node to the list 
+            # artificially modifies network structure (introducing bias), but 
+            # effects are mitigated beyond trivially small networks
+            treeStubs.extend(rng.choice(range(N), 2 - remainder)) 
 
         remainder = len(triStubs) % 3
         if remainder != 0:
-            triStubs = triStubs[:-remainder]
+            # and again for triangles -- adding to make it a multiple of 3 
+            triStubs.extend(rng.choice(range(N), 3 - remainder))
 
+        # shuffle the stubs before connecting
+        rng.shuffle(triStubs)
+        rng.shuffle(treeStubs)
+
+        for i in range(0, len(treeStubs), 2): 
+            u, v = treeStubs[i], treeStubs[i + 1] 
+            if u != v: # avoid self-connection!
+                g.add_edge(u, v)
+            
         for i in range(0, len(triStubs), 3):
             u, v, w = triStubs[i], triStubs[i + 1], triStubs[i + 2]
-            if u != v and u != w and v != w:
+            if u != v and u != w and v != w: # all-diff
                 g.add_edge(u, v)
                 g.add_edge(v, w)
                 g.add_edge(w, u)
-
+            # else, do nothing... just skipped a triangle
+            # computationally more viable but less likely to produce graph with
+            # the desired mean triangles; for large N _may_ be neglible, alternative
+            # could be to reshuffle all remaining tri stubs (including u, v, w) to avoid collision
+            # but would require some other arb fallback (e.g max attempts before skipping triangle) to avoid
+            # (unlikely, but possible) situation where last three stubs are all the same node 
         return g

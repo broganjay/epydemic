@@ -20,7 +20,7 @@
 from math import exp, log
 from networkx import neighbors
 import sys
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Set
 if sys.version_info >= (3, 8):
     from typing import Final
 else:
@@ -78,13 +78,13 @@ class PulseCoupledOscillator(Process):
     FIRING_NODES: Final[str] = 'epydemic.pulsecoupled.firingNodes'  #: A list of nodes firing at these times.
 
     # Model state placeholders
-    NODE_EVENT_ID: str = None                                       #: Identifier of the next firing event.
+    NODE_EVENT_ID: Optional[str] = None                                       #: Identifier of the next firing event.
 
     # Event names
     FIRED: Final[str] = 'epydemic.pulsecoupled.fired'               #: The name of the firing event.
 
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
         # state variable tags
@@ -117,6 +117,8 @@ class PulseCoupledOscillator(Process):
         :param n: the node
         :returns: the next scheduled firing time'''
         g = self.network()
+        if self.NODE_EVENT_ID is None:
+            return None
         id = g.nodes[n].get(self.NODE_EVENT_ID, None)
         if id is None:
             return None
@@ -131,7 +133,8 @@ class PulseCoupledOscillator(Process):
         :param n: the node
         :param et: the next scheduled firing time'''
         g = self.network()
-
+        if self.NODE_EVENT_ID is None:
+            return 
         # remove any existing firing event
         id = g.nodes[n].get(self.NODE_EVENT_ID, None)
         if id is not None:
@@ -309,8 +312,8 @@ class PulseCoupledOscillator(Process):
         #print(f'*** {n} fired at {t} ***')
 
         # set up sets for bumped nodes
-        self._bumping = set()
-        self._bumped = set()
+        self._bumping: Set[Node] = set()
+        self._bumped: Set[Node] = set()
 
         # fire the node
         self.fire(t, n)

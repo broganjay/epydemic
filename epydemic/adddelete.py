@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 if sys.version_info >= (3, 8):
     from typing import Final
 else:
@@ -45,7 +45,7 @@ class AddDelete(Process):
     # loci
     NODES: Final[str] = "allnodes"                       #: Name of the locus holding all nodes in the network.
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
 

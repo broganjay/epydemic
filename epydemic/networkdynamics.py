@@ -43,7 +43,7 @@ from epydemic import (
 
 # Event types (not exported outside this file)
 PostedEventFunction = Callable[[], None]
-PostedEvent = Tuple[float, int, Process, Optional[PostedEventFunction], Element, str]
+PostedEvent = Tuple[float, int, Optional[Process], Optional[PostedEventFunction], Element, str]
 
 
 class Dynamics(NetworkExperiment):
@@ -71,7 +71,7 @@ class Dynamics(NetworkExperiment):
         "epydemic.monitor.events"  #: Metadata element holding the number of events that happened.
     )
 
-    def __init__(self, p: Process, g: Union[Graph, NetworkGenerator] = None):
+    def __init__(self, p: Process, g: Optional[Union[Graph, NetworkGenerator]] = None):
         super().__init__(g)
 
         # initialise other fields
@@ -98,7 +98,7 @@ class Dynamics(NetworkExperiment):
         # self._interactions: Dict[str, List[Tuple[str, InteractionMatrix, str]]] = dict()   # dict from names to interaction specs
         self._interactions: List[Interaction] = []  # list of interactions
         self._conditionals: List[
-            Tuple[float, Process, Element, EventFunction, Condition, str]
+            Optional[Tuple[float, Process, Element, EventFunction, Condition, Optional[str]]]
         ] = []  # list of conditional events
 
     # ---------- Configuration ----------
@@ -202,7 +202,7 @@ class Dynamics(NetworkExperiment):
 
     # ---------- Stochastic events (drawn from a distribution) ----------
 
-    def addLocus(self, p: Process, n: str, l: Locus = None) -> Locus:
+    def addLocus(self, p: Process, n: str, l: Optional[Locus] = None) -> Locus:
         """Add a named locus associated with the given process.
 
         :param p: the process
@@ -363,8 +363,9 @@ class Dynamics(NetworkExperiment):
 
         id = self._nextEventId()
         ev = [t, id, p, (lambda: ef(t, e)), e, name]
-        self._postedEventFinder[id] = ev
-        heappush(self._postedEvents, ev)
+        event = cast(PostedEvent, ev)
+        self._postedEventFinder[id] = event
+        heappush(self._postedEvents, event)
         return id
 
     def postRepeatingEvent(
@@ -398,13 +399,6 @@ class Dynamics(NetworkExperiment):
 
         self.postEvent(t, p, e, repeat, name)
 
-    def postEquilibriumEvent(self, p: Process, e: Any, ef: EventFunction):
-        def check(t, n):
-            if self._process.atPartialEquilibrium(t):
-                ef(t, n)
-
-        self.postRepeatingEvent(0, 0.1, p, e, check)
-
     def postConditionalEvent(
         self,
         t: float,
@@ -414,6 +408,17 @@ class Dynamics(NetworkExperiment):
         condition: Condition,
         name: Optional[str] = None,
     ):
+        """Post an event that fires only on satisfaction of a condition.
+        Conditions are checked at each new simulation time to ensure any changes
+        in the previous time step are taken into account before newer events are fired.
+        
+        :param t: the current time
+        :param p: the process originating the event
+        :param e: the element (node or edge) on which the event occurs
+        :param ef: the event function to be fired when the condition is satisfied
+        :param condition: the condition to be satisfied
+        :param name: (optional) meaningful name of the event
+        """
         self._conditionals.append((t, p, e, ef, condition, name))
 
     def unpostEvent(self, id: int, fatal: bool = True) -> Optional[float]:
@@ -481,7 +486,7 @@ class Dynamics(NetworkExperiment):
             return None
 
         # if we get here there are no events remainiong
-        return None
+        # return None
 
     def nextPendingEventTime(self) -> Optional[float]:
         """Return the simulation time for the next pending posted event, without
@@ -532,29 +537,38 @@ class Dynamics(NetworkExperiment):
                 # fire the event
                 (et, _, p, pef, e, name) = cast(PostedEvent, pe)
                 self.setCurrentSimulationTime(et)  # set the correct time
-                # print("pre-pef()")
                 if p is None:
-                    r = 1
+                    r = 1.0
                 else:
-                    r = self.getEventSuccessProbability(
-                        et, e, pef, name, p.instanceName()
-                    )
-                if rng.random() <= r:
-                    pef()
-                    self.eventFired(t, p, name, e)
-                    n += 1
+                    if pef is not None:   
+                        r = self.getEventSuccessProbability(
+                            et, e, pef, name, p.instanceName()
+                        )
+                        if rng.random() <= r:       
+                            pef()
+                            self.eventFired(t, p, name, e)
+                            n += 1
 
     def _checkConditionals(self, t: float):
-        indexesToPop = []
+        """Check the status of each conditional held for the current simulation time `t`.
+        If the conditional is satisfied the associated event is posted at the current time, 
+        and the condition removed. Else, the condition is retained for the next time step.
+
+        :param: t: the current time
+        """
+        indexesToPop = [] # indexes of conditionals to be removed i.e after being satisfied
         for i in range(len(self._conditionals)):
-            (et, p, e, ef, condition, name) = self._conditionals[i]
+            conditional = self._conditionals[i]
+            if conditional is None:
+                continue
+            conditional  = cast(Tuple[float, Process, Element, EventFunction, Condition, str], conditional)
+            (et, p, e, ef, condition, name) = conditional
             if self._evaluateCondition(t, condition):
-                # print("firing conditional event", name, "at time", t)
-                self.postEvent(t, p, e, ef, name)
+                self.postEvent(t, p, e, ef, name) # post the associated event
                 indexesToPop.append(i)
         for i in indexesToPop:
             self._conditionals[i] = None
-        self._conditionals = [c for c in self._conditionals if c is not None]
+        self._conditionals = [c for c in self._conditionals if c is not None] 
 
     def _evaluateCondition(self, t: float, condition: Condition) -> bool:
         ctype, target = condition
@@ -563,19 +577,26 @@ class Dynamics(NetworkExperiment):
             return targetProcess.atEquilibrium(t) and t < self._process.maximumTime()
             # ensure not firing anything after the simulation is supposed to have ended
         else:
-            raise NotImplementedError(ctype, "type not yet implemented!")
-        return False
+            raise NotImplementedError(ctype, "type not yet implemented.")
 
-    def generateInteractions(self, source, target, name, preset):
+    def generateInteractions(self, source: str, target: str, name: Optional[str], preset: str) -> List[Interaction]:
+        """Given a source and target process, generate the interaction specified in the preset.
+        Bi-directional interactions will generate at least two interaction objects, e.g for cross-immunity
+        an immunity interaction is generated for both source-target and target-source. If the preset does not exist,
+        an exception is raised.
+
+        :param source: the source process
+        :param target: the target process
+        :param name: the name of the interaction
+        :param preset: the preset type of interaction
+        :returns: the generated interactions"""
+
         sourceModel = self._findProcess(source)
         targetModel = self._findProcess(target)
-        if preset == "cross_immunity":
+        if preset == "causes_immunity":
             infectEventName = sourceModel.getInfectEventName()
-            sourceCompartments = sourceModel.getInfectedCompartments()
             targetCompartments = targetModel.getInfectedCompartments()
-            interactions = Interaction.createCrossImmunityBetween(
-                source, target, infectEventName, sourceCompartments, targetCompartments
-            )
+            interactions = Interaction.createInfectionImmunityFor(source, target, infectEventName, targetCompartments)
         elif preset == "must_have_for_infection":
             infectEventName = sourceModel.getInfectEventName()
             targetCompartments = targetModel.getInfectedCompartments()
@@ -586,73 +607,35 @@ class Dynamics(NetworkExperiment):
             raise Exception("Preset not found")
         return interactions
 
-    def _findProcess(self, name):
+    def _findProcess(self, name: str) -> Process:
+        """Find the process with the given name. Raises an Exception 
+        if not found, as this is assumed to be a fatal error.
+        
+        :param name: the process name
+        :returns: the process"""
+
         for process in self._process.allProcesses():
             if process.instanceName() == name:
                 return process
         raise Exception("Process not found")
 
-    def getEventSuccessProbability(self, t, e, ef, name, origin):
-        # if e == None:
-        #     return 1
-        # elif isinstance(e, tuple):
-        #     n1, n2 = e
-        #     n1cs = self.network().nodes[n1]
-        #     n2cs = self.network().nodes[n2]
-        #     originC = "compartment@" + origin
-        #     n1COrigin = n1cs[originC]
-        #     n2COrigin = n2cs[originC]
-        #     interactions = self._interactions.get(origin, None)
-        #     if interactions is None:
-        #         return 1
-        #     for interaction in interactions:
-        #         name, mat, target, efName = interaction
-        #         targetC = "compartment@" + target
-        #         row = n1COrigin + "+" + n1cs[targetC]
-        #         column = n2COrigin + "+" + n2cs[targetC]
-        #         try:
-        #             # print("returngot (edge) byName", mat.getByName(row, column), "for row", row, "column", column, "interaction", name, "originC", originC, "ef.__name__", ef.__name__, "efName", efName)
-        #             # print(mat)
-        #             # if ef.__name__ == "infect":
-        #             #     print("returning for infect (edge)", mat.getByName(row, column))
-        #             #     print("n1c (origin)", origin, n1COrigin)
-        #             #     print("n1c", target, n1cs[targetC])
-        #             #     print("n2c (origin)", origin, n2COrigin)
-        #             #     print("n2c", target, n2cs[targetC])
+    def getEventSuccessProbability(self, t: float, e: Any, ef: PostedEventFunction, name: str, origin: Optional[str]) -> float:
+        """Given the event function and the element on which it occurs, return the success probability.
+        This is the probability that the event function is actually run and is unrelated to any other measure
+        (such as propsensity, if using stochastic simulation). This probability is dependent on any rules
+        held in the dynamics, such as process interactions, which may impede the event.
 
-        #             return mat.getByName(row, column)
-        #         except ValueError:
-        #             # then must be wrong type of mat -- continue
-        #             continue
-        # else: # then single node
-        #     ncs = self.network().nodes[e]
-        #     originC = "compartment@" + origin
-        #     nCOrigin = ncs[originC]
-        #     interactions = self._interactions.get(origin, None)
-        #     if interactions is None:
-        #         return 1
-        #     for interaction in interactions:
-        #         name, mat, target, efName = interaction
-        #         targetC = "compartment@" + target
-        #         row = nCOrigin
-        #         column = ncs[targetC]
-        #         try:
-        #             if mat.getByName(row, column) == 0:
-        #                 pass
-        #                 # print("returning 0 node (name", name + ") row", row, "column", column)
-        #             # print(mat)
-        #             # print("returngot (node) byName", mat.getByName(row, column), "for row", row, "column", column, "interaction", name, "originC", originC, "ef.__name__", ef.__name__, "efName", efName)
-        #             # # print(mat)
-        #             # if ef.__name__ == "infect":
-        #             #     print("returning for infect (node) event row,col,val", row, column, mat.getByName(row, column))
-        #             return mat.getByName(row, column)
-        #         except ValueError:
-        #             # then must be wrong type of mat -- continue
-        #             continue
-        #     # TODO: implement this
-        # return 1
+        :param t: the current time
+        :param e: the element on which the event occurs
+        :param ef: the event function
+        :param name: the name of the event
+        :param origin: the origin process of the event
+        :returns: the success probability of the event function
+
+        """
+
         if e == None:
-            return 1
+            return 1 # then not occuring at node/edge; assume can occur
         elif isinstance(e, tuple):
             n1, n2 = e
         else:
@@ -660,7 +643,9 @@ class Dynamics(NetworkExperiment):
         # important to remember that n1 is the one that is modified NOT n2
         # recall SI edge -> II edge (first node changes)
         n1Data = self.network().nodes[n1]
-        # ignore n2data for now (good idea??)
+        # ignore n2data 
+        if "history" not in n1Data:
+            n1Data["history"] = dict()
         n1History = n1Data["history"]
         for interaction in self.getSourceInteractions(origin, ef.__name__):
             modifier = self.evaluateInteraction(interaction, n1History)
@@ -671,21 +656,33 @@ class Dynamics(NetworkExperiment):
         return 1  # fallback
 
     def getSuitableEmergenceNode(self, model, t):
-        nodesList = list(self.network().nodes)
+        """For the particular model, return a node that is suitable for emergence, or None if none exists.
+        A target node is deemed suitable if there are no conflicting interactions which would prevent such seeding.
+        The current implementation is simple, yet naive. The method will keep attempting to find a node until the network is exhausted,
+        which can be problematic for large networks. 
+
+        Subclasses could implement their own method for returning a suitable emergence node.
+        
+        :param model: the model
+        :param t: the current time
+        :returns: the node id or None"""
+
+        nodesList = list(self.network().nodes) # as list for copy
         while not len(nodesList) == 0:
             rng.shuffle(nodesList)
             n = int(rng.random() * len(nodesList))
-            if (
-                self.getEventSuccessProbability(
-                    t, n, model.emerge, "try_emergence", model.instanceName()
-                )
-                > 0
-            ):
+            if (self.getEventSuccessProbability(t, n, model.emerge, "try_emergence", model.instanceName()) > 0):
+                # if interaction not outright prohibited then the node is suitable
                 return n
-            nodesList.pop(n)
+            nodesList.pop(n) # else remove the node -- will never be suitable
         return None
 
     def getSourceInteractions(self, source, efName):
+        """Return all interactions attached to the source AND matching the event function name.
+        
+        :param source: the source process
+        :param efName: the event function name
+        :returns: a list of interactions"""
         return list(
             filter(
                 lambda i: i.getSource() == source and i.getEventName() == efName,
@@ -694,9 +691,16 @@ class Dynamics(NetworkExperiment):
         )
 
     def evaluateInteraction(self, interaction, nodeHistory):
-        # at this point it is ASSUMED that the interaction source is the required source,
-        # so that is not checked
-        # along with the ef name
+        """Evaluate an interaction against a given node history. If
+        the interaction is satisfied, return the associated modifier.
+        If not satisfied, return the `otherwise` value, if one exists.
+        This method is intended to be used after sufficient validation 
+        (i.e matching of source and efName), so these are not checked.
+        
+        :param interaction: the interaction
+        :param nodeHistory: the node history
+        :returns: the modifier associated with the interaction or otherwise clause, depending on the truthiness of the interaction"""
+
         history, timings = nodeHistory[interaction.getTarget()]
         if interaction.isHistorical():
             interactionSatisfied = all(
@@ -708,8 +712,6 @@ class Dynamics(NetworkExperiment):
             )
 
         if interactionSatisfied:
-            # print("returning satisfied!", str(history), str(interaction))
             return interaction.getModifier()
         else:
-            # print("returning otherwise!", str(history), str(interaction))
             return interaction.getOtherwise()

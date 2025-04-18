@@ -17,8 +17,8 @@
 # You should have received a copy of the GNU General Public License
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
-from typing import List, Dict, Any, Union, cast, Tuple
-from epydemic import Process, Dynamics
+from typing import List, Dict, Any, Optional, Union, cast, Tuple
+from epydemic import Process, Dynamics, rng
 
 class ProcessSequence(Process):
     '''A process built from a sequence of other processes. This allows separate process
@@ -39,14 +39,16 @@ class ProcessSequence(Process):
     :param ps: the processes'''
 
     def __init__(self, ps: Union[List[Process], Dict[str, Process]]):
+        self._processes: List[Process]
+        self._processNames: Optional[Dict[str, Process]]
         if isinstance(ps, dict):
             # named processes
-            self._processes: List[Process] = list(cast(Dict[str, Process], ps).values())
-            self._processNames: Dict[str, Process] = ps
+            self._processes = list(cast(Dict[str, Process], ps).values())
+            self._processNames = ps
         else:
             # list of anonymous processes
-            self._processes: List[Process] = ps
-            self._processNames: Dict[str, Process] = None
+            self._processes = ps
+            self._processNames = None
         for p in self._processes:
             p.setContainer(self)
 
@@ -66,7 +68,7 @@ class ProcessSequence(Process):
         :returns: a list of processes'''
         return self._processes
 
-    def processNames(self) -> List[str]:
+    def processNames(self) -> Optional[List[str]]:
         '''Return a list of component process names. This will be None
         for anonymous processes.
 
@@ -76,7 +78,7 @@ class ProcessSequence(Process):
         else:
             return list(self._processNames.keys())
 
-    def get(self, n: str, v: Process = None) -> Process:
+    def get(self, n: str, v: Optional[Process] = None) -> Process:
         '''Return the named component process by name, or the default
         value if there is no such process. An exception is raised if the
         process sequence is anonymous.
@@ -87,7 +89,7 @@ class ProcessSequence(Process):
         if self._processNames is None:
             raise ValueError('Attempting to retrieve a component process from an anonymous process sequence')
         else:
-            return self._processNames.get(n, v)
+            return cast(Process, self._processNames.get(n, v))
 
     def __getitem__(self, n: str) -> Process:
         '''Retrieve a process by name. An exception is raised if the
@@ -130,6 +132,11 @@ class ProcessSequence(Process):
         :param params: the experimental parameters'''
         for p in self.processes():
             p.build(params)
+        # bi: impose randomised names anyway to avoid loci name collision
+        # only when there is the potential for collision
+        if self._possibleCompartmentConflict(self.processes()):
+            self._processNames = self._assignNames(self._processes)
+        # else leave it as it is
 
     def setUp(self, params: Dict[str, Any]):
         '''Set up the proceses.
@@ -166,7 +173,7 @@ class ProcessSequence(Process):
         of all component processes.
 
         :returns: the maximum simulation time'''
-        t = 0
+        t = 0.0
         for p in self.processes():
             t = max(t, p.maximumTime())
         return t
@@ -180,14 +187,15 @@ class ProcessSequence(Process):
         res = super().results()
         for p in self.processes():
             res.update(self.decorateAllCompartments(p.results(), p.instanceName()))
+        res = self.accumulateCompartmentResults(res)
         return res
     
-    def addInteraction(self, source: str, interactionType: str, target: str, weight: float = 1.0):
-        self._interactions.append((source, target, interactionType, weight))
-
-    def decorateAllCompartments(self, res: Dict[str, Any], instanceName: str) -> Dict[str, Any]:
+    def decorateAllCompartments(self, res: Dict[str, Any], instanceName: Optional[str]) -> Dict[str, Any]:
         '''Decorate all the compartments in the results dict with the
-        instance name of the process.
+        instance name of the process. This is to avoid process 
+        compartments overriding each other when reporting results.
+        It also allows for more fine-grained analysis on the results
+        without any extra overhead. 
 
         :param res: the results dict
         :param instanceName: the instance name
@@ -197,5 +205,70 @@ class ProcessSequence(Process):
         
         for k in list(res):
             res[self.decorateWith(k, instanceName)] = res.pop(k)
-
         return res
+
+    def accumulateCompartmentResults(self, res: Dict[str, Any]) -> Dict[str, Any]:
+        '''Given a results dictionary with decorated compartment names,
+        aggregate the results for each identical _undecorated_ compartment name and add 
+        this as another entry. Such entries are created even if there is only one use of
+        each compartment name.
+        
+        For example, for two SIR processes with names d1 and d2, the in `res` may look like:
+        {..., "R@d1": 20, "R@d2": 30, ...}
+        The output would be:
+        {..., "R@d1": 20, "R@d2": 30, "R": 50, ...}
+
+        :param res: the results dict
+        :returns: the aggregated results dict with original entries unchanged'''
+
+        undecoratedResults: Dict[str, Any] = {}
+        for k in res:
+            undecorated = self.undecoratedName(k)
+            if undecorated in undecoratedResults:
+                # then add to the existing value
+                undecoratedResults[undecorated] += res[k]
+            else:
+                # then just copy the value
+                undecoratedResults[undecorated] = res[k]
+        # then add the aggregated results to the original results
+        return res | undecoratedResults
+
+
+
+    def _assignNames(self, ps: List[Process]) -> Dict[str, Process]:
+        '''Assign randomised names to the processes in the sequence to avoid
+        name collisions, such as collisions of loci when two processes monitor
+        compartments of the same name. These names are exposed to the user, as if
+        they were explicitly defined in the process sequence.
+
+        :param ps: the processes
+        :returns: a dict of process names to processes'''
+        names: Dict[str, Process] = {}
+        i = 1 # counter for anonymous processes
+        for p in ps:
+            if p.instanceName() is not None:
+                # then just use the name it's given to itself
+                names[p.instanceName()] = p
+            else:
+                # then give a name based on the instance and a monotonically increasing number
+                # and make sure to notify processes of their new name
+                n = f'{p.__class__.__name__}_{i}'
+                i += 1
+                names[n] = p
+                p.setInstanceName(n)
+        return names
+
+    def _possibleCompartmentConflict(self, ps: List[Process]) -> bool:
+        '''Check if any processes in the sequence are likely to conflict with each other. 
+        This is done by checking if they share any compartment names. This must be called
+        _after_ each is built to ensure that the compartments are actually returned. 
+
+        :param ps: the processes
+        :returns: True if there is a possible conflict'''
+        allCompartments = []
+        for p in ps:
+            if hasattr(p, "compartments"):
+                allCompartments.extend(p.compartments())
+
+        # then check for duplicates
+        return len(allCompartments) != len(set(allCompartments))

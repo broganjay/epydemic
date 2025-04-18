@@ -63,7 +63,7 @@ class NetworkGenerator(object):
     # Extra parameter added automatically
     TOPOLOGY: Final[str] = 'topology'   #: Experimental parameter flagging the network's topology.
 
-    def __init__(self, params: Dict[str, Any] = None, limit: Optional[int] = None):
+    def __init__(self, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None):
         if params is None:
             params = dict()
         self._params: Dict[str, Any] = params

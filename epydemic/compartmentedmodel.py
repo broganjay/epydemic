@@ -20,8 +20,8 @@
 import math
 from itertools import permutations
 from networkx import Graph, DiGraph, all_simple_paths
-from typing import Dict, Any, List, Tuple, Callable, cast
-from epydemic import rng, Locus, Process, Node, Edge, Element, CompartmentHistory
+from typing import Dict, Any, List, Tuple, Callable, cast, Optional
+from epydemic import rng, Locus, Process, Node, Edge, Element, CompartmentHistory, InteractionMatrix
 
 # Helper types
 Handlers = Tuple[
@@ -245,8 +245,8 @@ class CompartmentedModel(Process):
     :param: name (optional) instance name"""
 
     # Placeholders for model state variables
-    COMPARTMENT: str = None  #: State variable holding a node's compartment.
-    OCCUPIED: str = None  #: State variable that's True for occupied edges.
+    COMPARTMENT: str = ""  #: State variable holding a node's compartment.
+    OCCUPIED: str = ""  #: State variable that's True for occupied edges.
 
     # Shared state variables
     T_OCCUPIED: str = (
@@ -261,7 +261,7 @@ class CompartmentedModel(Process):
     EMERGENCE_CONDITION: str = "emergenceCondition"
     EMERGENCE_TARGET: str = "emergenceTarget"
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
         self._compartments: Dict[str, float] = (
             dict()
@@ -283,19 +283,23 @@ class CompartmentedModel(Process):
         self._effects = dict()
 
     def emerge(self, t, n):
+        """Seed model onto the network. The default emergence behaviour is to emerge on 
+        a single node, provided there are no conflicting interactions that prevent seeding at all.
+        Any inheriting model _could_ override this method to provide a different emergence behaviour, 
+        analogous to how the initial seeding of the process can be overriden and fine-tuned.
+
+        :param: t: the simulation time
+        :param: n: the node to seed
+        """
         if self._emerged:
             # then already emerged
             return
         # default emergence behaviour is to randomly seed a node on the network
-        # n = int(rng.random() * len(self.network().nodes))
         en = self.getSuitableEmergenceNode(t)
         if en == None:
             # then failed to emerge
             return
         else:
-            # print("emerging at en, cs, t =", t, self.network().nodes[en])
-            # inRemoved = len(self._dynamics._findProcess("d1").compartment("epydemic.sir.I@d1"))
-            # # if inRemoved > TODO HERE
             self.postEvent(t, en, self.infect, "spontaneous_infection")
             self._emerged = True
 
@@ -315,7 +319,6 @@ class CompartmentedModel(Process):
         for _, _, data in g.edges(data=True):
             data[self.OCCUPIED] = False
 
-        # self.decorateAllNames()
         # place nodes in initial compartments
         try:
             [emergenceCondition] = self.getParameters(
@@ -443,7 +446,7 @@ class CompartmentedModel(Process):
 
         # find all unoccupied edges
         g = self.network()
-        edges = []
+        edges: list[Tuple[int, int]] = []
         for n, m, data in g.edges(data=True):
             if (self.OCCUPIED not in data.keys()) or (not data[self.OCCUPIED]):
                 # edge is unoccupied, mark it to be removed
@@ -455,25 +458,30 @@ class CompartmentedModel(Process):
 
         return g
 
-    def inverseSkeletonise(self) -> Graph:
-        # more complicated as must also remove nodes that have been hit
+    def residualUnhit(self) -> Graph:
+        """Remove occupied edges and hit nodes from the network. This leaves
+        the network consisting only of unoccupied edges and unhit nodes. This can 
+        have very specific uses, all of which are likely to follow any simulation.
+        The graph may not be fully-connected and may be sparse, depending on the spread
+        of this process, meaning further simulation on this may be limited.  This method
+        is the opposite of the :meth:`skeletonise` method."""
         g = self.network()
-        edges = []
+        edges: list[Tuple[int, int]] = []
         for n, m, data in g.edges(data=True):
             if data[self.OCCUPIED]:
                 # edge is occupied, mark it to be removed
-                # (safe because there are no parallel edges)
                 edges.insert(0, (n, m))
 
         # remove all the occupied edges
         g.remove_edges_from(edges)
 
         # remove all nodes that have been hit
-        nodes = []
+        nodes: list[int] = []
         for n, data in g.nodes(data=True):
             if self.T_HITTING in data.keys():
                 nodes.insert(0, n)
 
+        # then remove all hit nodes
         g.remove_nodes_from(nodes)
 
         return g
@@ -501,7 +509,7 @@ class CompartmentedModel(Process):
             raise Exception("Compartment {c} not defined in model".format(c=c))
         self._compartments[c] = p
 
-    def trackNodesInCompartment(self, c: str, name: str = None):
+    def trackNodesInCompartment(self, c: str, name: Optional[str] = None):
         """Add a locus tracking nodes in a given compartment.
 
         :param c: the compartment to track
@@ -516,7 +524,7 @@ class CompartmentedModel(Process):
         locus = CompartmentedNodeLocus(name, c)
         return self.addLocus(name, locus)
 
-    def trackEdgesBetweenCompartments(self, l: str, r: str, name: str = None):
+    def trackEdgesBetweenCompartments(self, l: str, r: str, name: Optional[str] = None):
         """Add a locus to track edges with endpoint nodes in the given compartments.
 
         :param l: the compartment of the left node
@@ -531,7 +539,7 @@ class CompartmentedModel(Process):
         locus = CompartmentedEdgeLocus(name, l, r)
         return self.addLocus(name, locus)
 
-    def addLocus(self, n: str, l: Locus = None) -> Locus:
+    def addLocus(self, n: str, l: Optional[Locus] = None) -> Locus:
         """Add a locus to the model, initialising the handler functions.
 
         :param n: the name
@@ -635,7 +643,7 @@ class CompartmentedModel(Process):
 
         :param n: the node
         :returns: its compartment"""
-        return self.network().nodes[n][self.COMPARTMENT]
+        return str(self.network().nodes[n][self.COMPARTMENT])
 
     def changeCompartment(self, n: Node, c: str):
         """Change the compartment of a node.
@@ -693,6 +701,7 @@ class CompartmentedModel(Process):
         g = self.network()
         (n, m) = e
         data = g.get_edge_data(n, m)
+        data = cast(Dict[str, Any], data)
         if (not firstOnly) or (not data.get(self.OCCUPIED, False)):
             data[self.OCCUPIED] = True
             data[self.T_OCCUPIED] = t
@@ -723,7 +732,7 @@ class CompartmentedModel(Process):
             if name is not None:
                 g.nodes[n][self.HITTING_PROCESS_NAME] = name
 
-    def addNode(self, n: Node, c: str = None, **kwds):
+    def addNode(self, n: Node, c: Optional[str] = None, **kwds):
         """Add a node to the working network, adding it to the appropriate compartment
         if one is provided].
 
@@ -774,30 +783,35 @@ class CompartmentedModel(Process):
         :returns: the effects"""
         return self._effects
 
-    def compartmentChangeEvent(self, t: float, e: Any, compartment: str):
+    def compartmentChangeEvent(self, t: float, e: Any, compartment: str, mark: bool = False):
+        """A general method for changing the compartment of a particular node. 
+        This is a helper function which can make creating new models more simple (as compartment
+        change events are abstracted) and can make the method's use more flexible. The element `e` may
+        be either a node or an edge, and is marked as hit or occupied respectively according to the 
+        `mark` value (default False).
+        
+        :param t: the simulation time
+        :param e: the node or edge
+        :param compartment: the new compartment for the node or edge
+        """
         if isinstance(e, tuple):
             (n, _) = e
-            self.markOccupied(e, t, firstOnly=True)
+            if mark:
+                self.markOccupied(e, t, firstOnly=True)
         else:
             n = e
-        self.markHit(n, t, firstOnly=True)
+        if mark:
+            self.markHit(n, t, firstOnly=True)
         self.changeCompartment(n, compartment)
 
-    def decorateAllNames(self):
-        # decorate compartments
-        newCompartments = {}
-        for c, f in self._compartments.items():
-            newCompartments[self.decoratedName(c)] = f
-            if c in self._effects.keys():
-                copy = self._effects[c]
-                del self._effects[c]
-                self._effects[self.decoratedName(c)] = copy
-            for name, locus in self.loci().items():
-                if c in locus.compartments():
-                    locus.replaceCompartment(c, self.decoratedName(c))
-        self._compartments = newCompartments
-
     def getSuitableEmergenceNode(self, t):
+        """Return a suitable node for emergence. 
+        This is just a wrapper which calls the method in the dynamics 
+        of the same name, as it is the dynamics which holds any interactions.
+        
+        :param t: the simulation time
+        :returns: a suitable node for emergence, if one exists, else None"""
+
         return self._dynamics.getSuitableEmergenceNode(self, t)
 
     def getPossibleCompartmentTransitions(self):
@@ -808,6 +822,12 @@ class CompartmentedModel(Process):
         return []
 
     def generateTransitionGraph(self):
+        """Generate a _directed_ graph of the possible transitions between compartments. This 
+        is returned as an `networkx.DiGraph` object, with each compartment as a node and each 
+        transition being a directed edge.
+        
+        :returns: a directed graph of the possible transitions between compartments
+        """
 
         transitionGraph = DiGraph()
 
@@ -820,13 +840,30 @@ class CompartmentedModel(Process):
         return transitionGraph
 
     def generatePossibleHistoriesTemplates(self):
+        """Generate all possible history templates that nodes affected
+        by this model may use. This is an iteration of all simple paths
+        through the graph of possible compartment to compartment transitions.
+        The paths are found using the handy `networkx.all_simple_paths` method. 
+
+        This method can be used with standard models that produce DAGs of transitions 
+        (such as the SIR model with S->I, I->R, S->I->R being the only possible histories) 
+        and those that do not such as the SIS model where the number of paths is infinite.
+        In these cyclic cases coefficients with histories are used, and the shortest non-cyclic paths 
+        are returned.
+
+        This generation does _not_ assume a starting compartment for the model, meaning it has the potential
+        to create templates that are never used. This is rationalised by the increased flexibility of not having
+        to specify an initial compartment ordinarily. 
+
+        :returns: a list of all possible histories for the model
+        """
 
         transitionGraph = self.generateTransitionGraph()
 
         allTransitions = []
 
-        for startC, targetC in permutations(transitionGraph.nodes, 2):
-            paths = list(all_simple_paths(transitionGraph, startC, targetC))
-            allTransitions.extend(list(map(tuple, paths)))
+        for startC, targetC in permutations(transitionGraph.nodes, 2): # choose two compartments, one being start one being the end 
+            paths = list(all_simple_paths(transitionGraph, startC, targetC)) # all paths startC->targetC (if any)
+            allTransitions.extend(list(map(tuple, paths))) # convert to tuples for immutability
 
-        return list(map(lambda t: CompartmentHistory(t), allTransitions))
+        return list(map(lambda t: CompartmentHistory(t), allTransitions)) # return the list of CompartmentHistory objects 

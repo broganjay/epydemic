@@ -96,7 +96,7 @@ class ShuffleK(Process):
                     break
 
             # choose a random neighbour of c, which mustn't be a, b, or c
-            ds = DrawSet(g.neighbors(c), [a, b, c])
+            ds = DrawSet(g.neighbors(c), iter([a, b, c]))
             if len(ds) == 0:
                 # no neighbours left, draw again
                 continue
@@ -123,7 +123,10 @@ class ShuffleK(Process):
         returns: a dict from degree to a set of nodes
         '''
         bins = dict()
-        for (n, d) in g.degree():
+        degree = g.degree()
+        if isinstance(degree, int):
+            return {degree: DrawSet()} # should never be, unless graph is order N = 1
+        for (n, d) in degree:
             # add node to correct bin
             if d not in bins:
                 bins[d] = DrawSet()

@@ -23,7 +23,7 @@ from networkx import Graph
 from epydemic import Dynamics, rng, Process, NetworkGenerator, Locus, Element, EventFunction
 from typing import Any, Dict, Union, Tuple, List
 if sys.version_info >= (3, 8):
-    from typing import Final
+    from typing import Final, Optional
 else:
     # backport compatibility with older typing
     from typing_extensions import Final
@@ -41,7 +41,7 @@ class SynchronousDynamics(Dynamics):
     # additional metadata
     TIMESTEPS_WITH_EVENTS: Final[str] = 'epydemic.dynamics.timesteps_with_events'  #: Metadata element holding the number timesteps that actually had events occur within them
 
-    def __init__(self, p: Process, g: Union[Graph, NetworkGenerator] = None):
+    def __init__(self, p: Process, g: Optional[Union[Graph, NetworkGenerator]] = None):
         super().__init__(p, g)
 
     def allEventsInTimestep(self, t: float) -> List[Tuple[Locus, Element, EventFunction, str]]:

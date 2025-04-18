@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Optional, cast
 if sys.version_info >= (3, 8):
     from typing import Final
 else:
@@ -46,8 +46,8 @@ class SIS(CompartmentedModel):
     '''
 
     # Node and edge attributes
-    N_INFECTED: Final[int] = 'nInfected'               #: Node attribute storing the number of times the node was infected.
-    N_OCCUPIED: Final[int] = 'nOccupied'               #: Edge attribute storing the number of times the edge was occupied (i.e., used to transmit the infection).
+    N_INFECTED: Final[str] = 'nInfected'               #: Node attribute storing the number of times the node was infected.
+    N_OCCUPIED: Final[str] = 'nOccupied'               #: Edge attribute storing the number of times the edge was occupied (i.e., used to transmit the infection).
 
     # Model  parameters
     P_INFECTED: Final[str] = 'epydemic.sis.pInfected'  #: Parameter for probability of initially being infected.
@@ -64,7 +64,7 @@ class SIS(CompartmentedModel):
     # Locus containing the edges at which dynamics can occur
     SI: Final[str] = 'epydemic.sis.SI'                 #: Edge able to transmit infection.
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
 
@@ -96,11 +96,12 @@ class SIS(CompartmentedModel):
         g = self.network()
         (n, m) = e
         data = g.get_edge_data(n, m)
+        data = cast(Dict[str, Any], data)
         if self.N_INFECTED in data.keys():
             data[self.N_OCCUPIED] += 1
         else:
             data[self.N_OCCUPIED] = 1
-        return data[self.N_OCCUPIED]
+        return int(data[self.N_OCCUPIED])
 
 
     def countInfected(self, n: Node) -> int:
@@ -114,7 +115,7 @@ class SIS(CompartmentedModel):
             data[self.N_INFECTED] += 1
         else:
             data[self.N_INFECTED] = 1
-        return data[self.N_INFECTED]
+        return int(data[self.N_INFECTED])
 
 
     def infect(self, t: float, e: Edge):
