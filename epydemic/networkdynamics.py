@@ -185,6 +185,8 @@ class Dynamics(NetworkExperiment):
                         source, target, name, preset
                     )
                     self._interactions.extend(interactions)
+        for p in self._process.allProcesses():
+            self._interactions.extend(p.interactions())
 
     def tearDown(self):
         """At the end of each experiment, throw away any posted by un-executed
@@ -197,7 +199,7 @@ class Dynamics(NetworkExperiment):
         # discard any remaining posted events
         self._postedEventFinder = {}
         self._postedEvents = []
-        self._interactions = {}
+        self._interactions = []
         self._conditionals = []
 
     # ---------- Stochastic events (drawn from a distribution) ----------
@@ -691,7 +693,7 @@ class Dynamics(NetworkExperiment):
             )
         )
 
-    def evaluateInteraction(self, interaction, nodeHistory):
+    def evaluateInteraction(self, interaction: Interaction, nodeHistory: Dict[str, Any]):
         """Evaluate an interaction against a given node history. If
         the interaction is satisfied, return the associated modifier.
         If not satisfied, return the `otherwise` value, if one exists.
@@ -701,18 +703,46 @@ class Dynamics(NetworkExperiment):
         :param interaction: the interaction
         :param nodeHistory: the node history
         :returns: the modifier associated with the interaction or otherwise clause, depending on the truthiness of the interaction"""
-
-        history, timings = nodeHistory[interaction.getTarget()]
-        if interaction.isHistorical():
-            interactionSatisfied = all(
-                c in history for c in interaction.getTargetCompartments()
-            )
+        target = interaction.getTarget()
+        if target == "*":
+            # then wildcard target -- so return modifier on any match, else if none then otherwise
+            targets = list(nodeHistory.keys())
+            if "history" in targets:
+                targets.remove("history")
+            # also remove self...
+            targets.remove(interaction.getSource())
+        elif target[0] == "~":
+            # then targetting all processes with classname
+            targetPs = filter(lambda p: p.__class__.__name__ == target[1:], self._process.allProcesses())
+            targets = list(map(lambda p: p.instanceName(), targetPs))
+            if "history" in targets:
+                targets.remove("history")
+            # also remove self...
+            if interaction.getSource() in targets:
+                targets.remove(interaction.getSource())
         else:
-            interactionSatisfied = (
-                history.getLatestCompartment() in interaction.getTargetCompartments()
-            )
+            targets = [target]
+        for target in targets:
+            history, timings = nodeHistory[target]
+            if interaction.isHistorical():
+                interactionSatisfied = all(
+                    c in history for c in interaction.getTargetCompartments()
+                )
+            else:
+                interactionSatisfied = (
+                    history.getLatestCompartment() in interaction.getTargetCompartments()
+                )
+            if interactionSatisfied:
+                # then work is done ... return modifier
+                return interaction.getModifier()
+        
+        # else return the otherwise (no interaction satisfied)
+        return interaction.getOtherwise()
 
-        if interactionSatisfied:
-            return interaction.getModifier()
-        else:
-            return interaction.getOtherwise()
+    def addInteraction(self, interaction: Interaction):
+        """Add an interaction to the dynamics. This is used to add interactions
+        that are not specified in the constructor, but are added later.
+
+        :param interaction: the interaction to add
+        """
+        self._interactions.append(interaction)

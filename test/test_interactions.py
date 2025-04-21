@@ -18,8 +18,15 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 from epydemic import *
+from test import *
 import unittest
 import json
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
+
+
+class SError(Exception):
+    '''Custom exception for testing purposes.'''
+    pass
 
 class InteractionsTest(unittest.TestCase):
 
@@ -100,10 +107,74 @@ class InteractionsTest(unittest.TestCase):
                 continue
             if SIR.INFECTED in d2Compartments:
                 self.assertIn(SIR.INFECTED, d1Compartments)
-            
 
+    @retry(stop=stop_after_attempt(RETRIES),  retry=retry_if_exception_type(StochasticException), reraise=True)
+    def testWildcardWithCrossImmunity(self):
+        '''Test a cross-immunity interaction between two compartmented processes.
+        Both have their interactions defined with wildcards (i.e they have no knowledge of each other).
+        Beyond the initial setup this test is the same as testCrossImmunity.'''
+        d1Interaction = Interaction(self.D1_NAME, self.INFECTION_NAME, 0.0, [SIR.INFECTED], True, True, '*', 1.0)
+        d2Interaction = Interaction(self.D2_NAME, self.INFECTION_NAME, 0.0, [SIR.INFECTED], True, True, '*', 1.0)
+        self._d1.addInteraction(d1Interaction)
+        self._d2.addInteraction(d2Interaction)
+        rc = self._e.set(self._params).run(fatal=True)
+        results = rc[self._e.RESULTS]
+        # first check both processes have infected at least 1 node each... pointless otherwise
+        try:
+            self.assertGreater(results[self._d1.decoratedName(SIR.REMOVED)], 0)
+            self.assertGreater(results[self._d2.decoratedName(SIR.REMOVED)], 0)
+        except AssertionError as e:
+            # then nothing seeded -- throw stochastic exception prompting retry
+            raise StochasticException from e
+        # normally max number of cumulative Rs is N * 2, but with cross-immunity
+        # node can catch max 1 disease = N instead so check this 
+        self.assertLessEqual(results[SIR.REMOVED], self._N)
+        # then check that there is not any nodes which seem to have been infected by _both_ processes
+        g = self._e.network()
+        for n, data in g.nodes(data=True):
+            history = data.get("history", {})
+            d1History = history.get(self.D1_NAME, ([], CompartmentHistory()))
+            d2History = history.get(self.D2_NAME, ([], CompartmentHistory()))
+            d1Compartments, _ = d1History
+            d2Compartments, _ = d2History
+            if SIR.INFECTED in d1Compartments:
+                self.assertNotIn(SIR.INFECTED, d2Compartments) # if infected by d1, not infected by d2
+            if SIR.INFECTED in d2Compartments:
+                self.assertNotIn(SIR.INFECTED, d1Compartments) # if infected by d2, not infected by d1
 
-
+    @retry(stop=stop_after_attempt(RETRIES),  retry=retry_if_exception_type(StochasticException), reraise=True)
+    def testByModelNameWithCrossImmunity(self):
+        '''Test a cross-immunity interaction between two compartmented processes.
+        Both target each other by _model_ name, not instance name (also requiring no knowledge of each other).
+        Beyond the initial setup this test is the same as testCrossImmunity.'''
+        d1Interaction = Interaction(self.D1_NAME, self.INFECTION_NAME, 0.0, [SIR.INFECTED], True, True, '~SIR', 1.0)
+        d2Interaction = Interaction(self.D2_NAME, self.INFECTION_NAME, 0.0, [SIR.INFECTED], True, True, '~SIR', 1.0)
+        self._d1.addInteraction(d1Interaction)
+        self._d2.addInteraction(d2Interaction)
+        rc = self._e.set(self._params).run(fatal=True)
+        results = rc[self._e.RESULTS]
+        # first check both processes have infected at least 1 node each... pointless otherwise
+        try:
+            self.assertGreater(results[self._d1.decoratedName(SIR.REMOVED)], 0)
+            self.assertGreater(results[self._d2.decoratedName(SIR.REMOVED)], 0)
+        except AssertionError as e:
+            # then nothing seeded -- throw stochastic exception prompting retry
+            raise StochasticException from e
+        # normally max number of cumulative Rs is N * 2, but with cross-immunity
+        # node can catch max 1 disease = N instead so check this 
+        self.assertLessEqual(results[SIR.REMOVED], self._N)
+        # then check that there is not any nodes which seem to have been infected by _both_ processes
+        g = self._e.network()
+        for n, data in g.nodes(data=True):
+            history = data.get("history", {})
+            d1History = history.get(self.D1_NAME, ([], CompartmentHistory()))
+            d2History = history.get(self.D2_NAME, ([], CompartmentHistory()))
+            d1Compartments, _ = d1History
+            d2Compartments, _ = d2History
+            if SIR.INFECTED in d1Compartments:
+                self.assertNotIn(SIR.INFECTED, d2Compartments) # if infected by d1, not infected by d2
+            if SIR.INFECTED in d2Compartments:
+                self.assertNotIn(SIR.INFECTED, d1Compartments) # if infected by d2, not infected by d1
 
 if __name__ == '__main__':
     unittest.main()

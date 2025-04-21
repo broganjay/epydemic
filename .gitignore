@@ -117,3 +117,6 @@ TAGS
 
 # Sphinx build docs
 doc/_build/
+
+# MyPy type checking
+.mypy_cache/

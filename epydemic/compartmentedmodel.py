@@ -21,7 +21,7 @@ import math
 from itertools import permutations
 from networkx import Graph, DiGraph, all_simple_paths
 from typing import Dict, Any, List, Tuple, Callable, cast, Optional
-from epydemic import rng, Locus, Process, Node, Edge, Element, CompartmentHistory, InteractionMatrix
+from epydemic import rng, Locus, Process, Node, Edge, Element, CompartmentHistory, InteractionMatrix, Interaction
 
 # Helper types
 Handlers = Tuple[
@@ -269,7 +269,7 @@ class CompartmentedModel(Process):
         self._effects: Dict[str, List[Handlers]] = (
             dict()
         )  # compartment -> event handlers
-
+        
         # state variable unique tags
         self.COMPARTMENT = self.stateVariable("compartment")
         self.OCCUPIED = self.stateVariable("occupied")

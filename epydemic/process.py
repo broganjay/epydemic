@@ -19,7 +19,7 @@
 
 from typing import Dict, List, Tuple, Any, Callable, Iterable, Union, Optional, cast
 from networkx import Graph
-from epydemic import Node, Edge, Element, Condition
+from epydemic import Node, Edge, Element, Condition, Interaction
 from epyc import ResultsDict
 
 # There is a circular import between Process and Dynamics, and between
@@ -87,6 +87,8 @@ class Process:
         self._uniqueId = Process.UNIQUE_SEQ
         Process.UNIQUE_SEQ += 1
         self._runId = 0
+
+        self._interactions: List[Interaction] = []
 
         # reset this instance
         # self.reset()
@@ -750,6 +752,21 @@ class Process:
         
         :param name: the instance name"""
         self._instanceName = name
+
+    def addInteraction(self, interaction: Interaction):
+        """Add an interaction to the model. This is a wrapper for the
+        :meth:`addInteraction` method in the dynamics, which is where the
+        interactions are actually stored.
+
+        :param interaction: the interaction to add"""
+        # self._dynamics.addInteraction(interaction)
+        self._interactions.append(interaction)
+
+    def interactions(self) -> List[Interaction]:
+        """Return the list of interactions defined for this particular instance.
+        These are just fed up to dynamics once built, but it is useful to be able to 
+        have some interactions associated with a particular model."""
+        return self._interactions
 
     @staticmethod
     def decorateWith(k: str, n: str):

@@ -56,11 +56,12 @@ from .types import Node, Edge, Element, Condition
 from .bbt import TreeNode
 from .drawset import DrawSet
 
+from .interaction_matrix import InteractionMatrix
+from .interactions import Interaction
+
 # network processes
 from .process import Process, EventFunction, EventDistribution
 from .loci import Locus
-from .interaction_matrix import InteractionMatrix
-from .interactions import Interaction
 
 # network generators
 from .generator import NetworkGenerator

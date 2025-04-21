@@ -18,3 +18,5 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 from .compartmenteddynamics import CompartmentedDynamicsTest
+
+from .exception import StochasticException, RETRIES
