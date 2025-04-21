@@ -28,7 +28,7 @@ class VaccinationTest(unittest.TestCase):
     def setUp(self):
         '''Set up the experimental parameters and process.'''
         N = 5000
-        kmean = 10
+        kmean = 2
         phi = (kmean + 0.0) / N
         self._network = networkx.erdos_renyi_graph(N, phi)
         self._maxTime = 5

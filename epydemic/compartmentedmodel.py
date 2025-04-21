@@ -324,9 +324,11 @@ class CompartmentedModel(Process):
             [emergenceCondition] = self.getParameters(
                 params, [self.EMERGENCE_CONDITION]
             )
-            [emergenceTarget] = self.getParameters(params, [self.EMERGENCE_TARGET])
         except KeyError:
             emergenceCondition = None
+        try:
+            [emergenceTarget] = self.getParameters(params, [self.EMERGENCE_TARGET])
+        except KeyError:
             emergenceTarget = None
         if emergenceCondition is not None:
             self._emerged = False
@@ -336,9 +338,14 @@ class CompartmentedModel(Process):
                     self.changeCompartmentInitialOccupancy(c, 0.0)
             self.changeCompartmentInitialOccupancy(startCompartment, 1.0)
             self.params = params
-            self.postConditionalEvent(
-                0, None, self.emerge, (emergenceCondition, emergenceTarget), "emergence"
-            )
+            if isinstance(emergenceCondition, float) or isinstance(emergenceCondition, int):
+                # then emerge at a fixed time -- don't need to add a condition for it
+                # just post the emergence 
+                self.postEvent(emergenceCondition, None, self.emerge, "emergence")
+            else:
+                self.postConditionalEvent(
+                    0, None, self.emerge, (emergenceCondition, emergenceTarget), "emergence"
+                )
 
         self.initialCompartments()
 

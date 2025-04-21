@@ -622,7 +622,7 @@ class Dynamics(NetworkExperiment):
     def getEventSuccessProbability(self, t: float, e: Any, ef: PostedEventFunction, name: str, origin: Optional[str]) -> float:
         """Given the event function and the element on which it occurs, return the success probability.
         This is the probability that the event function is actually run and is unrelated to any other measure
-        (such as propsensity, if using stochastic simulation). This probability is dependent on any rules
+        (such as propensity, if using stochastic simulation). This probability is dependent on any rules
         held in the dynamics, such as process interactions, which may impede the event.
 
         :param t: the current time
@@ -651,6 +651,7 @@ class Dynamics(NetworkExperiment):
             modifier = self.evaluateInteraction(interaction, n1History)
             if modifier >= 0 and modifier <= 1:
                 # then valid modifier
+                # print("n1Data", n1Data)
                 return modifier
             # else continue
         return 1  # fallback

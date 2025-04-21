@@ -43,8 +43,11 @@ class ProcessSequence(Process):
         self._processNames: Optional[Dict[str, Process]]
         if isinstance(ps, dict):
             # named processes
-            self._processes = list(cast(Dict[str, Process], ps).values())
             self._processNames = ps
+            for n in ps:
+                self._processNames[n].__init__(n)
+            self._processes = list(cast(Dict[str, Process], ps).values())
+                
         else:
             # list of anonymous processes
             self._processes = ps

@@ -18,7 +18,7 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 if sys.version_info >= (3, 8):
     from typing import Final
 else:
@@ -48,7 +48,7 @@ class NetworkStatistics(Process):
     LCC: Final[str] = 'epydemic.statistics.lcc'                #: Result holding the size of the largest connected ("giant") component
     SLCC: Final[str] = 'epydemic.statistics.slcc'              #: Result holding the size of the second-largest component
 
-    def __init__(self):
+    def __init__(self, name: Optional[str] = None):
         super().__init__()
 
     def atEquilibrium(self, t):
