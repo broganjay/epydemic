@@ -71,6 +71,8 @@ class Dynamics(NetworkExperiment):
         "epydemic.monitor.events"  #: Metadata element holding the number of events that happened.
     )
 
+    NEXT_MUTATION_P_ID: int = 1  #: Counter for the next mutation process id to ensure unique names
+
     def __init__(self, p: Process, g: Optional[Union[Graph, NetworkGenerator]] = None):
         super().__init__(g)
 
@@ -170,7 +172,7 @@ class Dynamics(NetworkExperiment):
 
         # can only elucidate interactions once processes built and set up as need compartments list
         # elucidate interactions
-        std_interactions = params.get("std_interactions", dict())
+        std_interactions = params.get(Interaction.STD, dict())
         if isinstance(std_interactions, str):
             std_interactions = json.loads(std_interactions)
             for k, v in std_interactions.items():
@@ -574,8 +576,10 @@ class Dynamics(NetworkExperiment):
 
     def _evaluateCondition(self, t: float, condition: Condition) -> bool:
         ctype, target = condition
-        if ctype == "equilibrium":
-            targetProcess = self._findProcess(target)
+        targetProcess = self._findProcess(target)
+        if targetProcess is None:
+            return False
+        if ctype == targetProcess.EQUILIBRIUM:
             return targetProcess.atEquilibrium(t) and t < self._process.maximumTime()
             # ensure not firing anything after the simulation is supposed to have ended
         else:
@@ -595,11 +599,13 @@ class Dynamics(NetworkExperiment):
 
         sourceModel = self._findProcess(source)
         targetModel = self._findProcess(target)
-        if preset == "causes_immunity":
+        if sourceModel is None or targetModel is None:
+            raise ValueError("Source or target for interaction not found")
+        if preset == Interaction.CAUSES_IMMUNITY:
             infectEventName = sourceModel.getInfectEventName()
             targetCompartments = targetModel.getInfectedCompartments()
             interactions = Interaction.createInfectionImmunityFor(source, target, infectEventName, targetCompartments)
-        elif preset == "must_have_for_infection":
+        elif preset == Interaction.INFECTION_PRECONDITION:
             infectEventName = sourceModel.getInfectEventName()
             targetCompartments = targetModel.getInfectedCompartments()
             interactions = Interaction.createRequiredPreinfectionFor(
@@ -610,8 +616,8 @@ class Dynamics(NetworkExperiment):
         return interactions
 
     def _findProcess(self, name: str) -> Process:
-        """Find the process with the given name. Raises an Exception 
-        if not found, as this is assumed to be a fatal error.
+        """Find the process with the given name. Returns None
+        if no such process exists.
         
         :param name: the process name
         :returns: the process"""
@@ -619,7 +625,7 @@ class Dynamics(NetworkExperiment):
         for process in self._process.allProcesses():
             if process.instanceName() == name:
                 return process
-        raise Exception("Process not found")
+        return None
 
     def getEventSuccessProbability(self, t: float, e: Any, ef: PostedEventFunction, name: str, origin: Optional[str]) -> float:
         """Given the event function and the element on which it occurs, return the success probability.
@@ -746,3 +752,49 @@ class Dynamics(NetworkExperiment):
         :param interaction: the interaction to add
         """
         self._interactions.append(interaction)
+
+    def postMutationEvent(self, t: float, p: Process, e: Element, name: Optional[str] = None):
+        """Post a mutation event. This is a special case of a posted event
+        that is used to trigger the mutation of a process at a node.
+
+        :param t: the current time
+        :param p: the process originating the event
+        :param e: the element (node or edge) on which the event occurs
+        :param name: (optional) meaningful name of the event
+        """
+        self.postEvent(t, p, e, lambda t, e: self.mutateProcess(p, t, e), name)
+
+    def mutateProcess(self, p: Process, t: float, e: Element):
+        """"""
+        if p.instanceName() is None:
+            newProcessName = str(p.__class__.__name__)
+        else:
+            newProcessName = p.instanceName() 
+        newProcessName += "_m" + str(self.NEXT_MUTATION_P_ID)
+        self.NEXT_MUTATION_P_ID += 1
+        newProcess = p.__class__(name=newProcessName)
+        # init the new process first, so can use the `setParameters` method
+        mutationProfile = p.getMutationProfile()
+        mutatingAttrs = mutationProfile.getMutatingAttrs()
+        previousParams = mutationProfile.getStoredParams()
+        newParams = dict()
+        for param, value in previousParams.items():
+            if param in mutatingAttrs:
+                # then mutate the parameter
+                newAttrValue = mutationProfile.mutateAttr(value, mutatingAttrs[param])
+                newProcess.setParameters(newParams, {param: newAttrValue})
+            elif param == p.decoratedName(p.undecoratedName(param)): # elif param belongs to orig process
+                # then copy the parameter
+                newProcess.setParameters(newParams, {newProcess.undecoratedName(param): value})
+            else: # undecorated (or not decorated for this), so just pass through
+                newParams[param] = value
+
+        # build THEN setup
+
+        newProcess.setDynamics(self)
+        newProcess.reset()
+        newProcess.build(newParams)
+        newProcess.setUp(newParams)
+        self._process.addProcessDynamically(newProcess)
+
+

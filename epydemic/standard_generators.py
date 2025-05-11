@@ -18,12 +18,13 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import json
-from epydemic import NetworkGenerator
+from epydemic import NetworkGenerator, rng
 from networkx import (
     Graph,
     fast_gnp_random_graph,
     barabasi_albert_graph,
     configuration_model,
+    disjoint_union_all
 )
 import sys
 import numpy as np
@@ -34,10 +35,6 @@ else:
     # backport compatibility with older typing
     from typing import Any, Dict, Optional
     from typing_extensions import Final
-
-from epydemic import rng
-
-
 class FixedNetwork(NetworkGenerator):
     """A network generator that always returns a copy of the same network.
 
@@ -178,9 +175,12 @@ class ConfigurationModel(NetworkGenerator):
     :param params: (optional) experiment parameters
     :param limit: (optional) maximum number of instances to generate"""
 
-
     N: Final[str] = "N"  #: Experimental parameter for the size (order) of the network.
-    DIST: Final[str] = "dist"  #: Experimental parameter for the degree distribution.
+    FULL_DIST: Final[str] = "fullDist"  #: Experimental parameter for the degree distribution in its entirety.
+    DIST_TYPE : Final[str] = "distType"  #: Experimental parameter for the type of degree distribution.
+    KMEAN: Final[str] = "kmean"  #: Experimental parameter for the mean degree of the network, supplied when distribution requires it
+
+    POISSON: Final[str] = "poisson"  #: Type of degree distribution, Poisson
 
     def __init__(self, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None):
         super().__init__(params, limit)
@@ -197,11 +197,26 @@ class ConfigurationModel(NetworkGenerator):
 
         :param params: experimental parameters
         :returns: the configuration model network"""
-        N = params[self.N]
-        dist = params[self.DIST]
-        if isinstance(dist, str):
-            dist = json.loads(dist)
-        g = configuration_model(dist)
+        if self.FULL_DIST in params:
+            # then full dist is given, so just use it every time
+            fullDist = params[self.FULL_DIST]
+            if isinstance(fullDist, str):
+                # then it is a string, so parse it
+                fullDist = json.loads(fullDist)
+                # no need for N, just take length of fullDist
+        elif params[self.DIST_TYPE] == self.POISSON:
+            # then create Poisson deg distribution with supplied kmean
+            kmean = params[self.KMEAN]
+            N = params[self.N]
+            fullDist = rng.poisson(kmean, N)
+        else:
+            raise KeyError('"fullDist" or "distType" not in params or not valid')
+    
+        if sum(fullDist) % 2 != 0:
+            # then the sum of the degree distribution is odd, so add an extra stub somewhere
+            # (some bias, but mitigated for large N)
+            fullDist[rng.choice(len(fullDist))] += 1
+        g = configuration_model(fullDist)
         return Graph(g) # cast to remove self-loops and multi-edges
 
 
@@ -249,11 +264,11 @@ class ClusteredNetwork(NetworkGenerator):
         kTree = rng.poisson(treeMean, N) # poisson dist of number of tree stubs per node
         kTri = rng.poisson(triMean, N) # poisson dist of number of triangle stubs per node
 
-        totalTri = sum(kTri) # total number of triangle stubs -- must be divisible by 3
+        # totalTri = sum(kTri) # total number of triangle stubs -- must be divisible by 3
         
-        # choose randomly which triangle stubs to remove for each over a clean multiple of 3
-        indices = rng.choice(len(kTri), totalTri % 3, replace=False)
-        kTri[indices] -= 1 # remove one stub from each
+        # # choose randomly which triangle stubs to remove for each over a clean multiple of 3
+        # indices = rng.choice(len(kTri), totalTri % 3, replace=False)
+        # kTri[indices] -= 1 # remove one stub from each
 
         treeStubs = []
         triStubs = []
@@ -279,21 +294,132 @@ class ClusteredNetwork(NetworkGenerator):
         rng.shuffle(triStubs)
         rng.shuffle(treeStubs)
 
-        for i in range(0, len(treeStubs), 2): 
-            u, v = treeStubs[i], treeStubs[i + 1] 
-            if u != v: # avoid self-connection!
-                g.add_edge(u, v)
+        while len(treeStubs) >= 2:
+            retries = 0
+            success = False
+
+            while retries < 10:
+                rng.shuffle(treeStubs)
+                u, v = treeStubs[0], treeStubs[1]
+
+                if u != v:
+                    g.add_edge(u, v)
+                    del treeStubs[0:2]
+                    success = True
+                    break
+
+                retries += 1
+
+            if not success:
+                # print("SKIPPED EDGE")
+                del treeStubs[0:2]
+
             
-        for i in range(0, len(triStubs), 3):
-            u, v, w = triStubs[i], triStubs[i + 1], triStubs[i + 2]
-            if u != v and u != w and v != w: # all-diff
-                g.add_edge(u, v)
-                g.add_edge(v, w)
-                g.add_edge(w, u)
-            # else, do nothing... just skipped a triangle
-            # computationally more viable but less likely to produce graph with
-            # the desired mean triangles; for large N _may_ be neglible, alternative
-            # could be to reshuffle all remaining tri stubs (including u, v, w) to avoid collision
-            # but would require some other arb fallback (e.g max attempts before skipping triangle) to avoid
-            # (unlikely, but possible) situation where last three stubs are all the same node 
+        while len(triStubs) >= 3:
+            retries = 0
+            success = False
+
+            while retries < 10:
+                rng.shuffle(triStubs)
+                u, v, w = triStubs[0], triStubs[1], triStubs[2]
+
+                if len({u, v, w}) == 3:
+                    g.add_edge(u, v)
+                    g.add_edge(v, w)
+                    g.add_edge(w, u)
+                    del triStubs[0:3]
+                    success = True
+                    break
+
+                retries += 1
+
+            if not success:
+                # print("SKIPPED TRIANGLE")
+                del triStubs[0:3]
+
         return g
+
+class MultilayerNetwork(NetworkGenerator):
+    """Generate a multilayer network from a dictionary of layer name and the underlying network generator.
+    Each generator is called individually and passed the same parameters, meaning that the parameters dictionary
+    must contain the necessary parameters for each generator. Parameters may be decorated with the layer name to 
+    allow the use of the same generator with different parameters across layers. This generator is likely more 
+    useful in custom experiments, which can specify inter-layer edges if any exist. This generator returns a 
+    `networkx.Graph` object with the layers as node attributes. Fundamentally, then, these multi-layer networks
+    are not much different to the other network types and are merely a convenience.
+
+    A multilayer network is a network with multiple layers, each of which can have its own topology.
+    The layers can connected by inter-layer edges.
+
+    :param params: (optional) experiment parameters
+    :param limit: (optional) maximum number of instances to generate"""
+
+    LAYERS: Final[str] = "layers"  #: Experimental parameter for the layers of the network (name, generator).
+    INTERMEAN: Final[str] = "interMean"  #: Experimental parameter for the mean inter-layer edge participation.
+
+    def __init__(self, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None):
+        super().__init__(params, limit)
+        self._layers: Dict[str, NetworkGenerator] = {}
+
+    def topology(self) -> str:
+        """Return the topology flag for this generator.
+
+        :returns: the topology marker ("ML")"""
+        return "ML"
+    
+    def _generate(self, params: Dict[str, Any]) -> Graph:
+        """Generate a multilayer network from a dictionary of layer name and the underlying network generator (or generator identifier).
+
+        :param params: experimental parameters
+        :returns: the multilayer network"""
+        # extract the layers
+        layers = params[self.LAYERS]
+        if not isinstance(layers, dict):
+            raise AttributeError("Layers must be a dictionary of layer name and generator/generator name")
+        for layer, generator in layers.items():
+            if isinstance(generator, str):
+                # then a generator name, so match to the generator by class.__name__
+                if generator not in _names:
+                    raise AttributeError(f"Generator {generator} not found")
+                generator = _names[generator](params, limit=self._limit)
+            elif not isinstance(generator, NetworkGenerator):
+                raise AttributeError("Layers must be a dictionary of layer name and generator name or generator object")
+            # else is generator object so just use it
+            self._layers[layer] = generator
+
+        graphs = list(map(lambda g: g.generate(params), self._layers.values()))
+        # combine the graphs into a single graph
+        g = disjoint_union_all(graphs, params)
+        g = self._addInterlayerEdges(g)
+        return g
+    
+    def _addInterlayerEdges(self, g: Graph, params: Dict[str, Any]) -> Graph:
+        """Add inter-layer edges to the graph. This is done in a configuration-model style 
+        fashion where nodes from each layer are randomly connected together according to the
+        distribution formed by the global mean inter-layer edge participation :attr:`INTERMEAN`.
+
+        :param g: the graph to add inter-layer edges to
+        :param params: experimental parameters
+        :returns: the graph with inter-layer edges added"""
+        # extract the inter-layer edge participation
+        interMean = params[self.INTERMEAN]
+        participation = rng.poisson(interMean, len(g.nodes()))
+        nodes = [i * participation[i] for i in range(len(g.nodes()))]
+        rng.shuffle(nodes)
+        for i in range(0, len(nodes), 2):
+            u, v = nodes[i], nodes[i + 1]
+            if u != v and g.nodes[u]["layer"] != g.nodes[v]["layer"]:
+                # then add an inter-layer edge
+                g.add_edge(u, v)
+            # else (for now ignore?....)
+            
+
+
+_names: dict[str, NetworkGenerator] = {
+    FixedNetwork.__name__: FixedNetwork,
+    ERNetwork.__name__: ERNetwork,
+    BANetwork.__name__: BANetwork,
+    ConfigurationModel.__name__: ConfigurationModel,
+    ClusteredNetwork.__name__: ClusteredNetwork,
+    MultilayerNetwork.__name__: MultilayerNetwork
+}

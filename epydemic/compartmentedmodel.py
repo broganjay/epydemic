@@ -21,7 +21,7 @@ import math
 from itertools import permutations
 from networkx import Graph, DiGraph, all_simple_paths
 from typing import Dict, Any, List, Tuple, Callable, cast, Optional
-from epydemic import rng, Locus, Process, Node, Edge, Element, CompartmentHistory, InteractionMatrix, Interaction
+from epydemic import rng, Locus, Process, Node, Edge, Element, CompartmentHistory, InteractionMatrix, Interaction, MutationProfile
 
 # Helper types
 Handlers = Tuple[
@@ -260,6 +260,11 @@ class CompartmentedModel(Process):
     START_COMPARTMENT: str = "startCompartment"
     EMERGENCE_CONDITION: str = "emergenceCondition"
     EMERGENCE_TARGET: str = "emergenceTarget"
+    P_MUTATION: str = "pMutation"
+
+    # Default mutation profile
+    DEFAULT_MUTATION_PROFILE: MutationProfile = MutationProfile() 
+
 
     def __init__(self, name: Optional[str] = None):
         super().__init__(name)
@@ -270,6 +275,8 @@ class CompartmentedModel(Process):
             dict()
         )  # compartment -> event handlers
         
+        self._mutationProfile: Optional[MutationProfile] = None
+
         # state variable unique tags
         self.COMPARTMENT = self.stateVariable("compartment")
         self.OCCUPIED = self.stateVariable("occupied")
@@ -282,7 +289,7 @@ class CompartmentedModel(Process):
         self._compartments = dict()
         self._effects = dict()
 
-    def emerge(self, t, n):
+    def emerge(self, t: float, n: Element):
         """Seed model onto the network. The default emergence behaviour is to emerge on 
         a single node, provided there are no conflicting interactions that prevent seeding at all.
         Any inheriting model _could_ override this method to provide a different emergence behaviour, 
@@ -295,7 +302,11 @@ class CompartmentedModel(Process):
             # then already emerged
             return
         # default emergence behaviour is to randomly seed a node on the network
-        en = self.getSuitableEmergenceNode(t)
+        if n is None:
+            en = self.getSuitableEmergenceNode(t)
+        else:
+            # then use the given node
+            en = n
         if en == None:
             # then failed to emerge
             return
@@ -348,6 +359,24 @@ class CompartmentedModel(Process):
                 )
 
         self.initialCompartments()
+
+    def build(self, params: Dict[str, Any]):
+        """Build the model. The default behaviour is to set the mutation rate, if found.
+
+        :param params: the model parameters"""
+
+        super().build(params)
+
+        [pMutation] = self.getParameters(params, [(self.P_MUTATION, None)])
+        if pMutation is not None:
+            infectedCompartments = self.getInfectedCompartments()
+            for c in infectedCompartments:
+                # first check if compartment has a locus tracking it -- if not, add it 
+                if c not in self.loci():
+                    self.trackNodesInCompartment(c)
+                # (required modification in `Process` to ensure that no error thrown when attempting to re-track compartment)
+                self.addEventPerElement(c, pMutation, self.mutate, name="mutation-" + c)
+
 
     def initialCompartmentDistribution(self) -> List[Tuple[str, float]]:
         """Return the initial distribution of nodes to compartments. The
@@ -522,7 +551,15 @@ class CompartmentedModel(Process):
         :param c: the compartment to track
         :param name: (optional) the name of the locus (defaults to the compartment name)
         :returns: the locus used to track the nodes"""
-        if name is None:
+        if name is None and c in self.loci():
+            # then the locus already exists 
+            # and reasonably safe to assume that compartment was already tracked
+            # so just return the existing locus
+            return self.loci()[c]
+        elif name is None and self.decoratedName(c) in self.loci():
+            # then also assume already been tracked, and return the decorated locus
+            return self.loci()[self.decoratedName(c)]
+        elif name is None:
             name = c
 
         # name = self.decoratedNameInInstance(name)
@@ -874,3 +911,35 @@ class CompartmentedModel(Process):
             allTransitions.extend(list(map(tuple, paths))) # convert to tuples for immutability
 
         return list(map(lambda t: CompartmentHistory(t), allTransitions)) # return the list of CompartmentHistory objects 
+    
+    def mutate(self, t: float, n: Element):
+        """Notify the encompassing dynamics that this model has mutated. The creation of the new process etc.
+        is handled by the dynamics, and this method is just a wrapper essentially If no mutation profile is set then
+        this method has no effect. Subclasses could override this method if needed, such as if there
+        is some change to internal (self) state as a result of the mutation.
+        
+        This method is likely attached to a locus with an associated mutation probability.
+        
+        :param t: the simulation time
+        :param n: the node that the mutation has occurred on
+        """
+
+        if self._mutationProfile is not None:
+            self._dynamics.postMutationEvent(t, self, n, "mutation")
+        # else - dont mutate as behvaiour is undefined
+
+    def getInfectedCompartments(self):
+        """Return the compartments in this model where the node is considered
+        _currently_ infected. Used in construction of cross-immunity, infection 
+        precondition and other interactions. For the base compartmented model class,
+        the list is empty as it is expected that the inheriting classes will define this.
+        
+        :returns: a list of compartments that are `infected'"""
+        return []
+
+    def getMutationProfile(self):
+        """Return the mutation profile for this model. This is used to determine
+        the mutation behaviour of the model, and is set in the `build` method.
+        
+        :returns: the mutation profile"""
+        return self._mutationProfile

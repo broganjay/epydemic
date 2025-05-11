@@ -58,6 +58,7 @@ from .drawset import DrawSet
 
 from .interaction_matrix import InteractionMatrix
 from .interactions import Interaction
+from .mutation import MutationProfile
 
 # network processes
 from .process import Process, EventFunction, EventDistribution

@@ -205,8 +205,8 @@ class ModelBuilder:
         for c in otherwiseCompartments:
             p = "1" + " - ".join(map(str, allPs))
             string += "self.addCompartment(self." + c.upper() + ", " + p + ")"
-        for c in compartments:
-            if c not in distribution
+        # for c in compartments:
+        #     if c not in distribution
         return string
 
         

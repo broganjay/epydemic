@@ -73,6 +73,8 @@ class Process:
     DEFAULT_MAX_TIME: float = 20000.0  #: Default maximum simulation time.
     UNIQUE_SEQ: int = 0  #: Process unique sequence number.
 
+    EQUILIBRIUM: str = "equilibrium"  #: Equilibrium state.
+
     def __init__(self, name: Optional[str] = None):
         super().__init__()
 

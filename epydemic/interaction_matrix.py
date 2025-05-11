@@ -201,7 +201,7 @@ class InteractionMatrix:
         :return: the edgewise interaction matrix 
         """
         return InteractionMatrix.generateEdgewiseInteractionMatrixForCompartments(
-            m1.compartments(), m2.compartments(), fieldValue
+            list(map(lambda c: m1.decoratedNameInInstance(c), m1.compartments())),  list(map(lambda c: m2.decoratedNameInInstance(c), m2.compartments())), fieldValue
         )
 
     @staticmethod
@@ -219,8 +219,8 @@ class InteractionMatrix:
         :param fieldValue: the value to fill the matrix with
         :return: the nodewise interaction matrix"""
 
-        rows = [(c) for c in m1.compartments()]
-        columns = [(c) for c in m2.compartments()]
+        rows = [(m1.decoratedNameInInstance(c)) for c in m1.compartments()]
+        columns = [(m2.decoratedNameInInstance(c)) for c in m2.compartments()]
         return InteractionMatrix(rows, columns, fieldValue)
 
     @staticmethod
@@ -236,7 +236,8 @@ class InteractionMatrix:
 
     @staticmethod
     def generateCrossImmuneInteractionMatrixForTwoModels(
-        m1: "CompartmentedModel", m2: "CompartmentedModel", previouslyInfectedCompartments: list[str]
+        m1: "CompartmentedModel", m2: "CompartmentedModel",
+        previouslyInfectedCompartments1: list[str], previouslyInfectedCompartments2: list[str]
     ) -> "InteractionMatrix":
         """Generate a cross-immune interaction matrix for two models. This creates an
         edgewise interaction matrix between the two models with each entry being 1 as default,
@@ -247,12 +248,15 @@ class InteractionMatrix:
         
         :param m1: the first model
         :param m2: the second model
-        :param previouslyInfectedCompartments: the compartments that are previously infected
+        :param previouslyInfectedCompartments1: the compartments that are previously infected in model 1
+        :param previouslyInfectedCompartments2: the compartments that are previously infected in model 2
         :return: the cross-immune interaction matrix
         """
         mat = InteractionMatrix.generateEdgewiseInteractionMatrixForTwoModels(m1, m2)
-        for c in previouslyInfectedCompartments:
-            mat.replaceEntriesInRow(c, 0)
+        for c in previouslyInfectedCompartments1:
+            mat.replaceEntriesInRow(m1.decoratedNameInInstance(c), 0)
+        for c in previouslyInfectedCompartments2:
+            mat.replaceEntriesInColumn(m2.decoratedNameInInstance(c), 0)
         return mat
 
     @staticmethod

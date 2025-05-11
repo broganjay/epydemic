@@ -25,7 +25,7 @@ if sys.version_info >= (3, 8):
 else:
     # backport compatibility with older typing
     from typing_extensions import Final
-from epydemic import CompartmentedModel
+from epydemic import CompartmentedModel, MutationProfile
 
 
 class SIR(CompartmentedModel):
@@ -59,7 +59,8 @@ class SIR(CompartmentedModel):
 
     # Locus containing the edges at which dynamics can occur
     SI: Final[str] = "epydemic.sir.SI"  #: Edge able to transmit infection.
-    IR: Final[str] = "epydemic.sir.IR"  ###
+
+    DEFAULT_MUTATING: Final[Dict[str, float]] = {P_INFECT: 0.5, P_REMOVE: 0.5}
 
     def __init__(self, name: Optional[str] = None):
         super().__init__(name)
@@ -69,7 +70,6 @@ class SIR(CompartmentedModel):
 
         :param params: the model parameters"""
         super().build(params)
-
         [pInfected, pInfect, pRemove] = self.getParameters(
             params, [self.P_INFECTED, self.P_INFECT, self.P_REMOVE]
         )
@@ -85,6 +85,10 @@ class SIR(CompartmentedModel):
 
         self.addEventPerElement(self.SI, pInfect, self.infect, name=self.INFECTED)
         self.addEventPerElement(self.INFECTED, pRemove, self.remove, name=self.REMOVED)
+
+        self._mutationProfile = MutationProfile(self.DEFAULT_MUTATING)
+        self._mutationProfile.storeParams(params)
+
 
     def infect(self, t: float, e: Any | tuple[Any, Any]) -> None:
         """Perform an infection event. This changes the compartment of
@@ -118,7 +122,7 @@ class SIR(CompartmentedModel):
 
     def getPossibleCompartmentTransitions(self):
         """Return all possible compartment transitions for this model, 
-        overriding the base class method. For the SIR model, all posible transitions are
+        overriding the base class method. For the SIR model, all possible transitions are
         S->I and I->R.
         
         :return: a list of tuples, each containing a start and end compartment for each possible transition
@@ -141,5 +145,10 @@ class SIR(CompartmentedModel):
     def getInfectedCompartments(self):
         """Return the compartments in this model where the node is considered
         _currently_ infected. Used in construction of cross-immunity, infection 
-        precondition and other interactions."""
+        precondition and other interactions.
+        
+        :return: a list of compartments where the node is infected"""
         return [self.INFECTED]
+    
+    def getStartCompartments(self):
+        return [self.SUSCEPTIBLE]

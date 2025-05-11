@@ -27,8 +27,14 @@ class Interaction:
     conditions such as those which are sensitive to time or other factors. 
     """
 
+    STD: str = "epydemic.interactions.std"
+    CUSTOM: str = "epydemic.interactions.custom"
+
+
     CROSSIMMUNITY: str = "epydemic.interactions.crossimmunity"
+    CAUSES_IMMUNITY: str = "epydemic.interactions.causesImmunity"
     REQUIRED_PREINFECTION: str = "epydemic.interactions.requiredPreinfection"
+    INFECTION_PRECONDITION: str = "epydemic.interactions.infectionPrecondition"
 
     def __init__(self, source: str, eventName: str, modifier: float, targetCompartments: list[str], isIn: bool, historical: bool, target: str, otherwise: float) -> None:
         self._source = source

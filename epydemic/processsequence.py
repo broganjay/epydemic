@@ -60,6 +60,7 @@ class ProcessSequence(Process):
         for p in self._processes:
             self._allProcesses.extend(p.allProcesses())
         self._interactions: List[Tuple[str, str, int]] = []
+        self._temporaryProcesses: List[Process] = []
         super().__init__()
 
 
@@ -128,6 +129,13 @@ class ProcessSequence(Process):
         '''Reset the processes.'''
         for p in self.processes():
             p.reset()
+
+        for p in self._temporaryProcesses:
+            self._processes.remove(p)
+            self._allProcesses.remove(p)
+        # removing all temporary processes 
+        self._temporaryProcesses = []
+        
 
     def build(self, params: Dict[str, Any]):
         '''Build the proceses.
@@ -275,3 +283,16 @@ class ProcessSequence(Process):
 
         # then check for duplicates
         return len(allCompartments) != len(set(allCompartments))
+    
+    def addProcessDynamically(self, p: Process) -> None:
+        '''Add a process to the sequence. This is only used in the case of
+        mutations, where processes may spawn other processes (but then relinquish
+        any control or relation to the enclosing dynamics). Each process added is marked
+        as `extra` to the original sequence and are cleaned up on each reset, ensuring mutations
+        do not persist across runs.
+
+        :param p: the process'''
+        self._processes.append(p)
+        p.setContainer(self)
+        self._allProcesses.extend(p.allProcesses())
+        self._temporaryProcesses.append(p)
