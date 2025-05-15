@@ -22,10 +22,11 @@ from epydemic import rng
 
 class MutationProfile:
 
-    def __init__(self, mutatingAttrs: Optional[Dict[str, float]] = None):
+    def __init__(self, mutatingAttrs: Optional[Dict[str, float]] = None, interactionType: Optional[str] = None):
         self._mutatingAttrs: Optional[Dict[str, float]] = mutatingAttrs
         self._storedParams: Dict[str, Any] = dict()
-    
+        self._interactionType: Optional[str | tuple[str, float]] = interactionType
+
     def getMutatingAttrs(self) -> Dict[str, float]:
         """Return the attributes that are mutated by this profile and the % difference the new attribute can have."""
         return self._mutatingAttrs
@@ -42,14 +43,18 @@ class MutationProfile:
         """Store the parameters in the mutation profile.
         Used for caching params used to create model, so new model can be
         created with same params."""
-        self._storedParams = params
+        self._storedParams = params.copy()
 
     def getStoredParams(self) -> Dict[str, Any]:
         """Return the stored parameters."""
         return self._storedParams
     
+    def getInteractionType(self) -> str | tuple[str, float]:
+        """Return the interaction type of the mutation profile."""
+        return self._interactionType
+
     @staticmethod
-    def mutateAttr(attrValue: float, mutationTolerance: float) -> float:
+    def mutateAttr(profile: "MutationProfile", attrValue: float, mutationTolerance: float) -> float:
         """Mutate the given attribute by a random amount within the given tolerance (taken as a percentage)
         e.g with `currentValue=0.1` and `mutationTolerance=0.1`, the new value will be ±10% of 0.1 (between 0.09 and 0.11).
         Assumes that the distribution of possible values across this range is uniform, although this may not be strictly true in all cases.

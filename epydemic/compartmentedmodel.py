@@ -21,6 +21,7 @@ import math
 from itertools import permutations
 from networkx import Graph, DiGraph, all_simple_paths
 from typing import Dict, Any, List, Tuple, Callable, cast, Optional
+import networkx as nx
 from epydemic import rng, Locus, Process, Node, Edge, Element, CompartmentHistory, InteractionMatrix, Interaction, MutationProfile
 
 # Helper types
@@ -414,7 +415,8 @@ class CompartmentedModel(Process):
 
         # assign nodes to compartments
         g = self.network()
-        for n in g.nodes():
+        # for n in g.nodes():
+        for n in self.distinctNodesInG():# changed to make multilayer aware
             # select a compartment according to the initial distribution
             r = rng.random()
             a = 0.0
@@ -465,10 +467,18 @@ class CompartmentedModel(Process):
         :returns: a dict of experimental results"""
         rc = super().results()
 
+        distinctNodes = self.distinctNodesInG()
+        multiplex = (len(distinctNodes) != len(self.network().nodes()))
+
         # add size of each compartment
         for c in self.compartments():
             rc[c] = len(self.compartment(c))
-        return rc
+            if multiplex:
+                # then collect the distinct sizes of each compartment 
+                # can just obtain the compartment from each of the distinct nodes 
+                # as they will be in the same compartment anyway
+                rc[c + "_DISTINCT"] = len([n for n in distinctNodes if self.getCompartment(n) == c])
+        return rc 
 
     def skeletonise(self) -> Graph:
         """Remove unoccupied edges from the network. This leaves the network
@@ -689,7 +699,7 @@ class CompartmentedModel(Process):
         :returns: its compartment"""
         return str(self.network().nodes[n][self.COMPARTMENT])
 
-    def changeCompartment(self, n: Node, c: str):
+    def changeCompartment(self, n: Node, c: str, changed: Optional[set] = None):
         """Change the compartment of a node.
 
         :param n: the node
@@ -731,6 +741,26 @@ class CompartmentedModel(Process):
 
         # propagate effects of entering new compartment
         self._callEnterHandlers(n, c)
+
+        # propagate any identity edges -- for multilayer networks only
+        idEdges = [(u, v) for u, v, d in g.edges(n, data=True) if d.get("identity", False)]
+
+        nsInIdEdges = set(u for u, v in idEdges) | set(v for u, v in idEdges)
+
+        if len(nsInIdEdges) == 0:
+            # then no identity edges
+            return
+        # else get the identity subgraph
+        identitySub = g.subgraph(nsInIdEdges).copy()
+
+        lcc = nx.node_connected_component(identitySub, n)
+
+        if changed is None:
+            changed = set()
+        changed.add(n)
+        for node in lcc:
+            if node not in changed:
+                self.changeCompartment(node, c, changed=changed)
 
     def markOccupied(self, e: Edge, t: float, firstOnly: bool = True):
         """Mark the given edge as having been occupied by the dynamics, i.e., to
@@ -914,7 +944,7 @@ class CompartmentedModel(Process):
     
     def mutate(self, t: float, n: Element):
         """Notify the encompassing dynamics that this model has mutated. The creation of the new process etc.
-        is handled by the dynamics, and this method is just a wrapper essentially If no mutation profile is set then
+        is handled by the dynamics, and this method is just a wrapper essentially. If no mutation profile is set then
         this method has no effect. Subclasses could override this method if needed, such as if there
         is some change to internal (self) state as a result of the mutation.
         
@@ -937,9 +967,35 @@ class CompartmentedModel(Process):
         :returns: a list of compartments that are `infected'"""
         return []
 
-    def getMutationProfile(self):
+    def getMutationProfile(self) -> MutationProfile:
         """Return the mutation profile for this model. This is used to determine
         the mutation behaviour of the model, and is set in the `build` method.
         
         :returns: the mutation profile"""
         return self._mutationProfile
+    
+    def distinctNodesInG(self) -> List[Node]:
+        """Return the distinct nodes in the network. This is a helper function
+        to ensure that the model is aware of the multilayer nature of the network.
+        
+        :returns: a list of distinct nodes in the network"""
+        g = self.network()
+        distinctNodes = set(g.nodes())
+        idEdges = [(u, v) for u, v, d in g.edges(data=True) if d.get("identity", False)]
+
+        nsInIdEdges = set(u for u, v in idEdges) | set(v for u, v in idEdges)
+
+        identitySub = g.subgraph(nsInIdEdges).copy()
+
+        identitySub.remove_edges_from([
+            (u, v) for u, v in identitySub.edges()
+            if not g[u][v].get("identity", False)
+        ])
+
+        for lcc in nx.connected_components(identitySub):
+            lcc = list(lcc)
+            rng.shuffle(lcc)
+            # Keep one, remove the rest
+            distinctNodes.difference_update(lcc[1:])
+
+        return list(distinctNodes)

@@ -75,6 +75,8 @@ class Process:
 
     EQUILIBRIUM: str = "equilibrium"  #: Equilibrium state.
 
+    NEXT_MUTATION_P_ID: int = 1
+
     def __init__(self, name: Optional[str] = None):
         super().__init__()
 
@@ -336,6 +338,7 @@ class Process:
         self._runId += 1
         self._perElementEvents: EventDistribution = []
         self._perLocusEvents: EventDistribution = []
+        self.NEXT_MUTATION_P_ID = 1
 
     def build(self, params: Dict[str, Any]):
         """Build the process model. This should be overridden by sub-classes,

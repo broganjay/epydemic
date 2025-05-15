@@ -66,7 +66,7 @@ from .loci import Locus
 
 # network generators
 from .generator import NetworkGenerator
-from .standard_generators import FixedNetwork, ERNetwork, BANetwork, ConfigurationModel, ClusteredNetwork
+from .standard_generators import FixedNetwork, ERNetwork, BANetwork, ConfigurationModel, ClusteredNetwork, MultilayerNetwork, MultiplexNetwork
 from .plc_generator import PLCNetwork
 from .coreperiphery_generator import CorePeripheryNetwork
 from .modular_generator import ModularNetwork

@@ -585,7 +585,7 @@ class Dynamics(NetworkExperiment):
         else:
             raise NotImplementedError(ctype, "type not yet implemented.")
 
-    def generateInteractions(self, source: str, target: str, name: Optional[str], preset: str) -> List[Interaction]:
+    def generateInteractions(self, source: str, target: str, name: Optional[str], preset: str | tuple[str, float]) -> List[Interaction]:
         """Given a source and target process, generate the interaction specified in the preset.
         Bi-directional interactions will generate at least two interaction objects, e.g for cross-immunity
         an immunity interaction is generated for both source-target and target-source. If the preset does not exist,
@@ -611,8 +611,27 @@ class Dynamics(NetworkExperiment):
             interactions = Interaction.createRequiredPreinfectionFor(
                 source, target, infectEventName, targetCompartments
             )
+        elif preset == Interaction.CROSSIMMUNITY:
+            infectEventName = sourceModel.getInfectEventName()
+            sourceCompartments = sourceModel.getInfectedCompartments()
+            targetCompartments = targetModel.getInfectedCompartments()
+            interactions = Interaction.createCrossImmunityBetween(
+                source, target, infectEventName, sourceCompartments, targetCompartments
+            )
+        elif isinstance(preset, tuple) and preset[0] == Interaction.CAUSES_PARTIAL_IMMUNITY:
+            infectEventName = sourceModel.getInfectEventName()
+            targetCompartments = targetModel.getInfectedCompartments()
+            interactions = Interaction.createPartialImmunityFor(
+                source, target, infectEventName, targetCompartments, preset[1]
+            )
+        elif isinstance(preset, tuple) and preset[0] == Interaction.PARTIAL_CROSSIMMUNITY:
+            infectEventName = sourceModel.getInfectEventName()
+            targetCompartments = targetModel.getInfectedCompartments()
+            interactions = Interaction.createPartialCrossImmunityFor(
+                source, target, infectEventName, sourceModel.getInfectedCompartments(), targetCompartments, preset[1]
+            )
         else:
-            raise Exception("Preset not found")
+            raise Exception(f"Preset {preset} not found")
         return interactions
 
     def _findProcess(self, name: str) -> Process:
@@ -765,13 +784,22 @@ class Dynamics(NetworkExperiment):
         self.postEvent(t, p, e, lambda t, e: self.mutateProcess(p, t, e), name)
 
     def mutateProcess(self, p: Process, t: float, e: Element):
-        """"""
+        """
+        Given a process and a target node, spawn a new mutant process at that node.
+        The new process inherits the parameters of the original process, but mutates
+        some attributes according to the mutation profile. The new process may interact
+        with the original process in some way, also specified in the mutation profile.
+
+        :param p: the process to mutate
+        :param t: the current time
+        :param e: the element (node or edge) on which the event occurs
+        """
         if p.instanceName() is None:
             newProcessName = str(p.__class__.__name__)
         else:
             newProcessName = p.instanceName() 
-        newProcessName += "_m" + str(self.NEXT_MUTATION_P_ID)
-        self.NEXT_MUTATION_P_ID += 1
+        newProcessName += "_m" + str(p.NEXT_MUTATION_P_ID)
+        p.NEXT_MUTATION_P_ID += 1
         newProcess = p.__class__(name=newProcessName)
         # init the new process first, so can use the `setParameters` method
         mutationProfile = p.getMutationProfile()
@@ -781,8 +809,12 @@ class Dynamics(NetworkExperiment):
         for param, value in previousParams.items():
             if param in mutatingAttrs:
                 # then mutate the parameter
-                newAttrValue = mutationProfile.mutateAttr(value, mutatingAttrs[param])
+                newAttrValue = mutationProfile.mutateAttr(mutationProfile, value, mutatingAttrs[param])
                 newProcess.setParameters(newParams, {param: newAttrValue})
+            elif param == p.decoratedName(p.undecoratedName(param)) and p.undecoratedName(param) in mutatingAttrs: # elif param belongs to orig process AND mutable
+                # then mutate the parameter
+                newAttrValue = mutationProfile.mutateAttr(mutationProfile, value, mutatingAttrs[p.undecoratedName(param)])
+                newProcess.setParameters(newParams, {p.undecoratedName(param): newAttrValue})
             elif param == p.decoratedName(p.undecoratedName(param)): # elif param belongs to orig process
                 # then copy the parameter
                 newProcess.setParameters(newParams, {newProcess.undecoratedName(param): value})
@@ -794,7 +826,36 @@ class Dynamics(NetworkExperiment):
         newProcess.setDynamics(self)
         newProcess.reset()
         newProcess.build(newParams)
-        newProcess.setUp(newParams)
+        [startCompartment] = newProcess.getStartCompartments()
+        for c in newProcess.compartments():
+                if c != startCompartment:
+                    newProcess.changeCompartmentInitialOccupancy(c, 0.0)
+        newProcess.changeCompartmentInitialOccupancy(startCompartment, 1.0)
+        newProcess.setUp(newParams) # now set up ensuring nothing infected
+        # then set the element `e` to the infected compartment
+        [infectedCompartment] = newProcess.getInfectedCompartments()
+        newProcess.changeCompartment(e, infectedCompartment)
+        # then add process to the dynamics as it finished build + setup
         self._process.addProcessDynamically(newProcess)
+
+        # then add any interactions if present
+        interactionType = mutationProfile.getInteractionType()
+        interactions = []
+        if interactionType is None:
+            # no interaction, ignore
+            return
+        elif isinstance(interactionType, str):
+            # then just a string, so assume a preset
+            interactions = self.generateInteractions(
+                p.instanceName(), newProcess.instanceName(), newProcess.instanceName(), interactionType
+            )
+        elif isinstance(interactionType, tuple):
+            # then a tuple, so assume a preset and a name
+            interactions = self.generateInteractions(
+                p.instanceName(), newProcess.instanceName(), newProcess.instanceName(), interactionType
+            )
+
+        for interaction in interactions:
+            self.addInteraction(interaction)
 
 

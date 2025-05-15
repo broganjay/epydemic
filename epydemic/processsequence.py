@@ -214,9 +214,14 @@ class ProcessSequence(Process):
         if instanceName is None:
             return res
         
-        for k in list(res):
-            res[self.decorateWith(k, instanceName)] = res.pop(k)
-        return res
+        newRes = {}
+
+        for k, v in res.items():
+            if self.undecoratedName(k) == k: # then undecorated
+                newRes[self.decorateWith(k, instanceName)] = v
+            else: # just pass through
+                newRes[k] = v
+        return newRes
 
     def accumulateCompartmentResults(self, res: Dict[str, Any]) -> Dict[str, Any]:
         '''Given a results dictionary with decorated compartment names,

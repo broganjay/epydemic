@@ -32,7 +32,9 @@ class Interaction:
 
 
     CROSSIMMUNITY: str = "epydemic.interactions.crossimmunity"
+    PARTIAL_CROSSIMMUNITY: str = "epydemic.interactions.partialCrossimmunity"
     CAUSES_IMMUNITY: str = "epydemic.interactions.causesImmunity"
+    CAUSES_PARTIAL_IMMUNITY: str = "epydemic.interactions.causesPartialImmunity"
     REQUIRED_PREINFECTION: str = "epydemic.interactions.requiredPreinfection"
     INFECTION_PRECONDITION: str = "epydemic.interactions.infectionPrecondition"
 
@@ -124,8 +126,8 @@ class Interaction:
         :param source: the source disease
         :param target: the target disease
         :param eventName: the event name associated with the interaction
-        :param sourceCompartments: the compartments of the source disease
-        :param targetCompartments: the compartments of the target disease
+        :param sourceCompartments: the _infected_ compartments of the source disease
+        :param targetCompartments: the _infected_ compartments of the target disease
         :return: a list of interactions, one for each direction
         """
         interactions = []
@@ -173,3 +175,34 @@ class Interaction:
             source, eventName, 0.0, targetCompartments, True, True, target, 1.0
         )
         return [interaction]
+    
+    @staticmethod
+    def createPartialCrossImmunityFor(
+        source: str,
+        target: str,
+        eventName: str,
+        sourceCompartments: list[str],
+        targetCompartments: list[str],
+        modifier: float,
+    ) -> list["Interaction"]:
+        """Create a partial cross-immunity interaction between two diseases. As interactions are directed, 
+        this method returns two separate interactions, one for each direction. Each individual interaction
+        encodes that the source is unable to infect the node if the node has previously been infected by the target.
+        
+        :param source: the source disease
+        :param target: the target disease
+        :param eventName: the event name associated with the interaction
+        :param sourceCompartments: the compartments of the source disease
+        :param targetCompartments: the compartments of the target disease
+        :return: a list of interactions, one for each direction
+        """
+        interactions = []
+        sourceInteraction = Interaction(
+            source, eventName, modifier, targetCompartments, True, True, target, 1.0
+        )
+        targetInteraction = Interaction(
+            target, eventName, modifier, sourceCompartments, True, True, source, 1.0
+        )
+        interactions.append(sourceInteraction)
+        interactions.append(targetInteraction)
+        return interactions

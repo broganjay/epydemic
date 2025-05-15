@@ -94,8 +94,16 @@ class Monitor(Process):
         if self._timeSeries is None:
             self._timeSeries = dict()
             self._timeSeries[self.OBSERVATIONS] = []
-            for n in self.dynamics().loci().keys():   # loci for all processes in this experiment
-                self._timeSeries[Monitor.timeSeriesForLocus(n)] = []
+
+        # every time check for new loci as they may be added dynamically
+        for n in self.dynamics().loci().keys():   # loci for all processes in this experiment
+            k = Monitor.timeSeriesForLocus(n)
+            if k not in self._timeSeries:
+                # then add a new time series for this locus
+                self._timeSeries[k] = []
+                # back fill with length of others to 0 to ensure matches
+                self._timeSeries[k] = [0] * (len(self._timeSeries[self.OBSERVATIONS])) 
+            # else already in -- leave it be
 
         # make the observation
         self._timeSeries[self.OBSERVATIONS].append(t)

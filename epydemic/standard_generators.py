@@ -18,9 +18,11 @@
 # along with epydemic. If not, see <http://www.gnu.org/licenses/gpl.html>.
 
 import json
+from typing import List, Tuple
 from epydemic import NetworkGenerator, rng
 from networkx import (
     Graph,
+    MultiGraph,
     fast_gnp_random_graph,
     barabasi_albert_graph,
     configuration_model,
@@ -311,7 +313,6 @@ class ClusteredNetwork(NetworkGenerator):
                 retries += 1
 
             if not success:
-                # print("SKIPPED EDGE")
                 del treeStubs[0:2]
 
             
@@ -368,29 +369,51 @@ class MultilayerNetwork(NetworkGenerator):
         return "ML"
     
     def _generate(self, params: Dict[str, Any]) -> Graph:
-        """Generate a multilayer network from a dictionary of layer name and the underlying network generator (or generator identifier).
+        """Generate a multilayer network from a list of tuples (or lists) of layer name and underlying network generator (or generator identifier).
+
+        :param params: experimental parameters
+        :returns: the multilayer network"""
+        g = self._generateLayerSeparated(g, params)
+        g = self._addInterlayerEdges(g, params)
+        return g
+
+    def _generateLayerSeparated(self, params: Dict[str, Any]) -> Graph:
+        """Generate a multilayer network from a list of tuples (or lists) of layer name and underlying network generator (or generator identifier).
+        There are NO inter-layer edges in the graph returned by this function. This is useful for generating the layers separately.
 
         :param params: experimental parameters
         :returns: the multilayer network"""
         # extract the layers
         layers = params[self.LAYERS]
+        if isinstance(layers, str):
+            # then parse the string
+            layers = json.loads(layers)
         if not isinstance(layers, dict):
-            raise AttributeError("Layers must be a dictionary of layer name and generator/generator name")
-        for layer, generator in layers.items():
+            raise AttributeError("Layers must be a dict of (layer name : generator/generator name)")
+        for (layer, generator) in layers.items():
             if isinstance(generator, str):
                 # then a generator name, so match to the generator by class.__name__
                 if generator not in _names:
                     raise AttributeError(f"Generator {generator} not found")
-                generator = _names[generator](params, limit=self._limit)
+                generator = _names[generator](params, limit=self._remaining)
             elif not isinstance(generator, NetworkGenerator):
-                raise AttributeError("Layers must be a dictionary of layer name and generator name or generator object")
+                raise AttributeError("Layers must be a dict of (layer name : generator/generator name)")
             # else is generator object so just use it
             self._layers[layer] = generator
 
-        graphs = list(map(lambda g: g.generate(params), self._layers.values()))
+        graphs = []
+        for layer, generator in self._layers.items():
+            # generate the network
+            g = generator.generate()
+            if g is None:
+                raise AttributeError("Generator returned None")
+            # add the layer attribute to the nodes
+            for n in g.nodes():
+                g.nodes[n]["layer"] = layer
+            # add the graph to the list of graphs
+            graphs.append(g)
         # combine the graphs into a single graph
-        g = disjoint_union_all(graphs, params)
-        g = self._addInterlayerEdges(g)
+        g = disjoint_union_all(graphs)
         return g
     
     def _addInterlayerEdges(self, g: Graph, params: Dict[str, Any]) -> Graph:
@@ -398,21 +421,73 @@ class MultilayerNetwork(NetworkGenerator):
         fashion where nodes from each layer are randomly connected together according to the
         distribution formed by the global mean inter-layer edge participation :attr:`INTERMEAN`.
 
-        :param g: the graph to add inter-layer edges to
+        :param g: the graph to add inter-layer 
         :param params: experimental parameters
         :returns: the graph with inter-layer edges added"""
         # extract the inter-layer edge participation
         interMean = params[self.INTERMEAN]
         participation = rng.poisson(interMean, len(g.nodes()))
-        nodes = [i * participation[i] for i in range(len(g.nodes()))]
+        nodes = []
+        for n in g.nodes():
+            # add the node to the list of nodes
+            nodes.extend([n] * participation[n])
+        if len(nodes) % 2 != 0:
+            # then the number of nodes is odd, so add an extra node to the list
+            nodes.append(rng.choice(g.nodes()))
         rng.shuffle(nodes)
         for i in range(0, len(nodes), 2):
             u, v = nodes[i], nodes[i + 1]
             if u != v and g.nodes[u]["layer"] != g.nodes[v]["layer"]:
                 # then add an inter-layer edge
-                g.add_edge(u, v)
+                g.add_edge(u, v, interlayer = True)
             # else (for now ignore?....)
-            
+        return g
+        
+
+class MultiplexNetwork(MultilayerNetwork):
+    """Generate a multiplex network from a dictionary of layer name and the underlying network generator.
+    Each generator is called individually and passed the same parameters, meaning that the parameters dictionary
+    must contain the necessary parameters for each generator. Parameters may be decorated with the layer name to 
+    allow the use of the same generator with different parameters across layers. This generator is just a special
+    case of a multi-layer network where every inter-layer edge is marked as an identity edge and cannot be occupied
+    by processes. It is up to the process to be aware of the multiplex nature of the substrate, otherwise the graph
+    is treated as just any other. 
+
+    A multiplex network is a network with multiple layers, each of which can have its own topology.
+    Inter-layer edges are an identity relationship between nodes in each layer, if the implementation uses
+    several layers.
+
+    :param params: (optional) experiment parameters
+    :param limit: (optional) maximum number of instances to generate"""
+
+    def topology(self) -> str:
+        """Return the topology flag for this generator.
+
+        :returns: the topology marker ("MP")"""
+        return "MP"
+    
+    def _generate(self, params):
+        """Generate a multiplex network from a dictionary of layer name and the underlying network generator (or generator identifier).
+        
+        :param params: experimental parameters
+        :returns: the multiplex network"""
+        g = super()._generateLayerSeparated(params) # use the multilayer network generator 
+        # then connect pairwise
+        for i in range(len(self._layers.keys()) - 1): # from bottom to second
+            layerOneName = list(self._layers.keys())[i]
+            layerTwoName = list(self._layers.keys())[i + 1]
+            layerOnePool = [n for n in g.nodes() if g.nodes[n]["layer"] == layerOneName]
+            layerTwoPool = [n for n in g.nodes() if g.nodes[n]["layer"] == layerTwoName]
+            # ASSUME SAME SIZE FOR NOW
+            rng.shuffle(layerOnePool)
+            rng.shuffle(layerTwoPool)
+            for j in range(len(layerOnePool)):
+                u = layerOnePool[j]
+                v = layerTwoPool[j]
+                g.add_edge(u, v, identity = True)
+                # nodes wont be the same as guaranteed unique node labels
+        return g
+
 
 
 _names: dict[str, NetworkGenerator] = {
@@ -421,5 +496,6 @@ _names: dict[str, NetworkGenerator] = {
     BANetwork.__name__: BANetwork,
     ConfigurationModel.__name__: ConfigurationModel,
     ClusteredNetwork.__name__: ClusteredNetwork,
-    MultilayerNetwork.__name__: MultilayerNetwork
+    MultilayerNetwork.__name__: MultilayerNetwork,
+    MultiplexNetwork.__name__: MultiplexNetwork,
 }
